@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { SafeImage } from "@/components/ui/safe-image";
+import { LanguageToggle } from "@/components/shared/LanguageToggle";
 
 type AuthPageShellProps = {
   illustrationSrc: string;
@@ -23,6 +24,11 @@ export function AuthPageShell({
 }: AuthPageShellProps) {
   return (
     <div className="auth-page-root relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.15),transparent_55%),radial-gradient(circle_at_bottom,_rgba(236,72,153,0.12),transparent_65%)] dark:bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.15),transparent_55%),radial-gradient(circle_at_bottom,_rgba(236,72,153,0.12),transparent_65%)]">
+      {/* Floating Top Right Language Toggle */}
+      <div className="absolute top-4 right-4 z-50">
+        <LanguageToggle />
+      </div>
+
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(255,255,255,0.3),transparent_60%)] dark:bg-[radial-gradient(circle_at_center,_rgba(255,255,255,0.05),transparent_60%)]" />
 
       {/* Viewport x-y center — may sit under form column; REQ-0032 authBgFloat */}

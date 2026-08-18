@@ -36,8 +36,8 @@ describe("resolveInvoiceSecondaryEvent", () => {
       resolveInvoiceSecondaryEvent({
         status: "sent",
         sentAt: "2026-07-15T00:00:00.000Z",
-        dueDate: "2026-08-14T00:00:00.000Z",
+        dueDate: "2026-12-31T00:00:00.000Z",
       }),
-    ).toMatchObject({ kind: "due", date: "2026-08-14T00:00:00.000Z" });
+    ).toMatchObject({ kind: "due", date: "2026-12-31T00:00:00.000Z" });
   });
 });

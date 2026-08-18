@@ -1,11 +1,10 @@
 /**
- * Product validation schemas
- * Zod schemas used by product forms and API; productSchema for form, createProductBodySchema/updateProductBodySchema for API routes.
- * calculateProductStatus() derives "available" | "stock_low" | "stock_out" from quantity and reservedQuantity.
+ * BuildStock Product Validation Schemas
  */
 
 import { z } from "zod";
 import type { ProductStatus } from "@/types";
+import { calculateStockStatus } from "@/lib/inventory/stockService";
 
 const productSkuSchema = z
   .string()
@@ -17,7 +16,7 @@ const productApiNameSchema = z
   .min(1, "Product name is required")
   .max(100, "Product name must be 100 characters or less");
 
-const productStatusSchema = z.enum(["Available", "Stock Low", "Stock Out"]);
+const productStatusSchema = z.string();
 
 const optionalImageUrlSchema = z
   .string()
@@ -33,21 +32,26 @@ const optionalExpirationDateSchema = z
 
 /**
  * Product form validation schema
- * Used for creating and updating products
  */
 export const productSchema = z.object({
   productName: productApiNameSchema,
   sku: productSkuSchema,
+  barcode: z.string().optional().or(z.literal("")),
+  brandId: z.string().optional().or(z.literal("")),
+  brandName: z.string().optional().or(z.literal("")),
+  subcategoryId: z.string().optional().or(z.literal("")),
+  model: z.string().optional().or(z.literal("")),
+  size: z.string().optional().or(z.literal("")),
+  color: z.string().optional().or(z.literal("")),
+  material: z.string().optional().or(z.literal("")),
+  weight: z.number().nonnegative().optional().or(z.null()),
   quantity: z.preprocess(
     (val) => {
       if (val === "" || val === null || val === undefined) return 0;
       const num = typeof val === "string" ? Number(val) : val;
       return isNaN(num as number) ? 0 : num;
     },
-    z
-      .number()
-      .int("Quantity must be an integer")
-      .nonnegative("Quantity cannot be negative"),
+    z.number().nonnegative("Quantity cannot be negative")
   ),
   price: z.preprocess(
     (val) => {
@@ -55,8 +59,16 @@ export const productSchema = z.object({
       const num = typeof val === "string" ? Number(val) : val;
       return isNaN(num as number) ? 0 : num;
     },
-    z.number().nonnegative("Price cannot be negative"),
+    z.number().nonnegative("Price cannot be negative")
   ),
+  purchasePrice: z.number().nonnegative().optional().or(z.null()),
+  wholesalePrice: z.number().nonnegative().optional().or(z.null()),
+  retailPrice: z.number().nonnegative().optional().or(z.null()),
+  minimumStock: z.number().nonnegative().optional().or(z.null()),
+  maximumStock: z.number().nonnegative().optional().or(z.null()),
+  unitId: z.string().optional().or(z.literal("")),
+  purchaseUnitId: z.string().optional().or(z.literal("")),
+  saleUnitId: z.string().optional().or(z.literal("")),
   imageUrl: optionalImageUrlSchema,
   imageFileId: z.string().optional(),
   expirationDate: z
@@ -66,28 +78,40 @@ export const productSchema = z.object({
     .or(z.literal("")),
 });
 
-/**
- * Product form data type inferred from schema
- */
 export type ProductFormData = z.infer<typeof productSchema>;
 
-/**
- * Form submit schema — RHF fields plus category/supplier from separate state
- */
 export const productFormSubmitSchema = productSchema.extend({
   categoryId: z.string().min(1, "Category is required"),
   supplierId: z.string().min(1, "Supplier is required"),
 });
 
 /**
- * API request body for POST /api/products (userId from session only)
+ * API request body for POST /api/products
  */
 export const createProductBodySchema = z.object({
   name: productApiNameSchema,
   sku: productSkuSchema,
+  barcode: z.string().optional(),
+  brandId: z.string().optional(),
+  brandName: z.string().optional(),
+  subcategoryId: z.string().optional(),
+  model: z.string().optional(),
+  size: z.string().optional(),
+  color: z.string().optional(),
+  material: z.string().optional(),
+  weight: z.number().nonnegative().optional(),
+  dimensions: z.any().optional(),
   price: z.number().nonnegative("Price cannot be negative"),
-  quantity: z.number().int().nonnegative("Quantity cannot be negative"),
-  status: productStatusSchema,
+  purchasePrice: z.number().nonnegative().optional(),
+  wholesalePrice: z.number().nonnegative().optional(),
+  retailPrice: z.number().nonnegative().optional(),
+  quantity: z.number().nonnegative("Quantity cannot be negative"),
+  minimumStock: z.number().nonnegative().optional(),
+  maximumStock: z.number().nonnegative().optional(),
+  unitId: z.string().optional(),
+  purchaseUnitId: z.string().optional(),
+  saleUnitId: z.string().optional(),
+  status: productStatusSchema.optional(),
   categoryId: z.string().min(1, "Category is required"),
   supplierId: z.string().min(1, "Supplier is required"),
   imageUrl: optionalImageUrlSchema.optional(),
@@ -95,9 +119,6 @@ export const createProductBodySchema = z.object({
   expirationDate: optionalExpirationDateSchema.optional(),
 });
 
-/**
- * Product creation input validation schema (includes userId for import/bulk flows)
- */
 export const createProductSchema = createProductBodySchema.extend({
   userId: z.string().min(1),
 });
@@ -109,8 +130,26 @@ export const updateProductBodySchema = z.object({
   id: z.string().min(1, "Product ID is required"),
   name: productApiNameSchema.optional(),
   sku: productSkuSchema.optional(),
+  barcode: z.string().optional(),
+  brandId: z.string().optional(),
+  brandName: z.string().optional(),
+  subcategoryId: z.string().optional(),
+  model: z.string().optional(),
+  size: z.string().optional(),
+  color: z.string().optional(),
+  material: z.string().optional(),
+  weight: z.number().nonnegative().optional(),
+  dimensions: z.any().optional(),
   price: z.number().nonnegative("Price cannot be negative").optional(),
-  quantity: z.number().int().nonnegative("Quantity cannot be negative").optional(),
+  purchasePrice: z.number().nonnegative().optional(),
+  wholesalePrice: z.number().nonnegative().optional(),
+  retailPrice: z.number().nonnegative().optional(),
+  quantity: z.number().nonnegative("Quantity cannot be negative").optional(),
+  minimumStock: z.number().nonnegative().optional(),
+  maximumStock: z.number().nonnegative().optional(),
+  unitId: z.string().optional(),
+  purchaseUnitId: z.string().optional(),
+  saleUnitId: z.string().optional(),
   status: productStatusSchema.optional(),
   categoryId: z.string().min(1, "Category is required").optional(),
   supplierId: z.string().min(1, "Supplier is required").optional(),
@@ -119,23 +158,23 @@ export const updateProductBodySchema = z.object({
   expirationDate: optionalExpirationDateSchema.optional(),
 });
 
-/**
- * Product update input validation schema (alias for API/import compatibility)
- */
 export const updateProductSchema = updateProductBodySchema;
 
-/** POST /api/products/qr-code */
 export const generateProductQrCodeBodySchema = z.object({
   productId: z.string().min(1, "Product ID is required"),
 });
 
 /**
- * Calculate product status based on quantity
- * @param quantity - Product quantity
- * @returns ProductStatus
+ * Dynamic calculation of product status using per-product minimumStock.
  */
-export const calculateProductStatus = (quantity: number): ProductStatus => {
-  if (quantity > 20) return "Available";
-  if (quantity > 0 && quantity <= 20) return "Stock Low";
-  return "Stock Out";
+export const calculateProductStatus = (
+  quantity: number,
+  minimumStock: number = 0,
+  maximumStock?: number | null
+): ProductStatus | string => {
+  const status = calculateStockStatus(quantity, minimumStock, maximumStock);
+  
+  if (status === "OUT_OF_STOCK") return "Stock Out";
+  if (status === "LOW_STOCK") return "Stock Low";
+  return "Available";
 };

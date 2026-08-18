@@ -101,10 +101,19 @@ export const getSessionServer = async (
  * Works with App Router route handlers
  */
 export const getSessionFromRequest = async (request: {
-  cookies: { get: (name: string) => { value: string } | undefined };
+  cookies?: { get: (name: string) => { value: string } | undefined };
+  headers?: { get: (name: string) => string | null };
 }): Promise<User | null> => {
-  const cookie = request.cookies.get("session_id");
-  const token = cookie?.value;
+  let token = request.cookies?.get("session_id")?.value;
+
+  if (!token && request.headers) {
+    const authHeader =
+      request.headers.get("authorization") ||
+      request.headers.get("Authorization");
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      token = authHeader.substring(7).trim();
+    }
+  }
 
   if (!token) {
     return null;

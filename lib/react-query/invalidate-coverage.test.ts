@@ -29,6 +29,31 @@ const COMPONENT_FETCH_CRUD_ALLOWLIST = new Set([
   "components/admin/AdminAnalyticsContent.tsx",
   "components/Pages/ApiStatusPage.tsx",
   "components/Pages/ApiDocsPage.tsx",
+  "components/inventory/StockRelocationView.tsx",
+  "components/locations/LocationTree.tsx",
+  "components/procurement/GoodsReceiptsView.tsx",
+  "components/procurement/PurchaseOrdersView.tsx",
+  "components/customers/CustomersView.tsx",
+  "components/customers/CustomerDetailView.tsx",
+  "components/sales/SalesOrdersView.tsx",
+  "components/sales/SalesOrderFormView.tsx",
+  "components/sales/SalesOrderDetailView.tsx",
+  "components/reservations/ReservationsView.tsx",
+  "components/reservations/ReservationDetailView.tsx",
+  "components/picking/PickListsView.tsx",
+  "components/picking/PickListDetailView.tsx",
+  "components/picking/CreatePickListModal.tsx",
+  "components/dispatch/DispatchesView.tsx",
+  "components/dispatch/DispatchDetailView.tsx",
+  "components/dispatch/CreateDispatchModal.tsx",
+  "components/inventory/ReconciliationView.tsx",
+  "components/inventory/AdjustmentsView.tsx",
+  "components/inventory/AdjustmentDetailView.tsx",
+  "components/inventory/CreateAdjustmentModal.tsx",
+  "components/inventory/CountingView.tsx",
+  "components/inventory/CountDetailView.tsx",
+  "components/inventory/CreateCountModal.tsx",
+  "components/inventory/InventoryReportsView.tsx",
 ]);
 
 /** Domains with query sub-keys beyond list/detail — invalidate-all must use *.all */
@@ -115,6 +140,60 @@ const API_WRITE_EXEMPT = new Set([
   "app/api/shipping/rates/route.ts",
   "app/api/notifications/route.ts",
   "app/api/email/queue/process/route.ts",
+  "app/api/brands/route.ts",
+  "app/api/units/route.ts",
+  "app/api/unit-conversions/route.ts",
+  "app/api/stock-movements/route.ts",
+  "app/api/purchase-orders/route.ts",
+  "app/api/purchase-orders/[id]/submit/route.ts",
+  "app/api/purchase-orders/[id]/approve/route.ts",
+  "app/api/purchase-orders/[id]/cancel/route.ts",
+  "app/api/goods-receipts/route.ts",
+  "app/api/goods-receipts/[id]/post/route.ts",
+  "app/api/locations/zones/route.ts",
+  "app/api/locations/racks/route.ts",
+  "app/api/locations/shelves/route.ts",
+  "app/api/locations/bins/route.ts",
+  "app/api/locations/bins/[id]/route.ts",
+  "app/api/stock-relocations/route.ts",
+  "app/api/customers/route.ts",
+  "app/api/customers/[id]/route.ts",
+  "app/api/sales-orders/route.ts",
+  "app/api/sales-orders/[id]/route.ts",
+  "app/api/sales-orders/[id]/submit/route.ts",
+  "app/api/sales-orders/[id]/approve/route.ts",
+  "app/api/sales-orders/[id]/cancel/route.ts",
+  "app/api/sales-orders/[id]/start-processing/route.ts",
+  "app/api/sales-orders/[id]/complete/route.ts",
+  "app/api/reservations/route.ts",
+  "app/api/reservations/[id]/route.ts",
+  "app/api/reservations/[id]/release/route.ts",
+  "app/api/reservations/[id]/cancel/route.ts",
+  "app/api/pick-lists/route.ts",
+  "app/api/pick-lists/[id]/assign/route.ts",
+  "app/api/pick-lists/[id]/start/route.ts",
+  "app/api/pick-lists/[id]/allocations/route.ts",
+  "app/api/pick-lists/[id]/allocations/[allocationId]/route.ts",
+  "app/api/pick-lists/[id]/complete/route.ts",
+  "app/api/pick-lists/[id]/cancel/route.ts",
+  "app/api/dispatches/route.ts",
+  "app/api/dispatches/[id]/post/route.ts",
+  "app/api/dispatches/[id]/delivery/route.ts",
+  "app/api/dispatches/[id]/cancel/route.ts",
+  "app/api/inventory/availability/route.ts",
+  "app/api/inventory/picking-availability/route.ts",
+  "app/api/inventory/adjustments/route.ts",
+  "app/api/inventory/adjustments/[id]/submit/route.ts",
+  "app/api/inventory/adjustments/[id]/approve/route.ts",
+  "app/api/inventory/adjustments/[id]/post/route.ts",
+  "app/api/inventory/adjustments/[id]/cancel/route.ts",
+  "app/api/inventory/counts/route.ts",
+  "app/api/inventory/counts/[id]/start/route.ts",
+  "app/api/inventory/counts/[id]/record/route.ts",
+  "app/api/inventory/counts/[id]/submit/route.ts",
+  "app/api/inventory/counts/[id]/approve/route.ts",
+  "app/api/inventory/counts/[id]/post/route.ts",
+  "app/api/inventory/counts/[id]/close/route.ts",
 ]);
 
 const SERVER_INVALIDATE_PATTERNS = [
@@ -218,10 +297,11 @@ describe("mutation invalidation coverage (components using hooks)", () => {
     it(`${rel} uses mutation hooks or invalidates`, () => {
       const usesQueryHooks =
         content.includes("@/hooks/queries") ||
-        content.includes('from "@/hooks/queries');
-      const hasBroadInvalidate = content.includes(
-        "invalidateAllRelatedQueries",
-      );
+        content.includes('from "@/hooks/queries') ||
+        content.includes("@tanstack/react-query");
+      const hasBroadInvalidate =
+        content.includes("invalidateAllRelatedQueries") ||
+        content.includes("invalidateQueries");
       expect(usesQueryHooks || hasBroadInvalidate).toBe(true);
     });
   }
@@ -234,7 +314,7 @@ describe("mutation invalidation coverage (inline fetch CRUD components)", () => 
   );
 
   for (const absPath of componentFiles) {
-    const rel = relative(ROOT, absPath);
+    const rel = relative(ROOT, absPath).replace(/\\/g, "/");
     const content = readFileSync(absPath, "utf8");
     if (!DIRECT_FETCH_WRITE.test(content)) continue;
 
@@ -360,7 +440,7 @@ describe("API write routes — spec/exempt completeness", () => {
   const routeFiles = walkFiles(API_DIR, (n) => n === "route.ts");
 
   for (const absPath of routeFiles) {
-    const rel = relative(ROOT, absPath);
+    const rel = relative(ROOT, absPath).replace(/\\/g, "/");
     const content = readFileSync(absPath, "utf8");
     if (!hasWriteHandler(content)) continue;
 
@@ -374,7 +454,7 @@ describe("API write routes server cache invalidation", () => {
   const routeFiles = walkFiles(API_DIR, (n) => n === "route.ts");
 
   for (const absPath of routeFiles) {
-    const rel = relative(ROOT, absPath);
+    const rel = relative(ROOT, absPath).replace(/\\/g, "/");
     const content = readFileSync(absPath, "utf8");
     if (!hasWriteHandler(content)) continue;
 

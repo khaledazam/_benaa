@@ -129,8 +129,8 @@ export async function seedDemoCatalog(
         name: spec.name,
         sku: spec.sku,
         price: spec.price,
-        quantity: BigInt(spec.quantity),
-        reservedQuantity: BigInt(spec.reservedQuantity),
+        quantity: spec.quantity,
+        reservedQuantity: spec.reservedQuantity,
         status: spec.status,
         categoryId,
         supplierId: supplierIdByKey[spec.supplierKey],
@@ -160,8 +160,8 @@ export async function seedDemoCatalog(
       data: {
         productId,
         warehouseId,
-        quantity: BigInt(spec.quantity),
-        reservedQuantity: BigInt(spec.reservedQuantity),
+        quantity: spec.quantity,
+        reservedQuantity: spec.reservedQuantity,
         userId: adminId,
         createdAt: now,
         updatedAt: now,
@@ -314,7 +314,7 @@ export async function seedDemoCatalog(
         productId,
         fromWarehouseId,
         toWarehouseId,
-        quantity: BigInt(spec.quantity),
+        quantity: spec.quantity,
         status: spec.status,
         notes: spec.notes,
         userId: adminId,
@@ -489,26 +489,13 @@ export async function seedDemoCatalog(
     auditIds.push(row.id);
   }
 
-  // --- Stub schema models (empty shells; no UI pages) ---
+  // --- Stub schema models ---
   const stubCounts: Record<string, number> = {};
-  await prisma.department.create({ data: {} });
-  stubCounts.Department = 1;
-  await prisma.stockAlert.create({ data: {} });
-  stubCounts.StockAlert = 1;
-  await prisma.userAction.create({ data: {} });
-  stubCounts.UserAction = 1;
-  await prisma.session.create({
-    data: { sessionToken: { demo: "seed-session" } },
-  });
-  stubCounts.Session = 1;
-  await prisma.verificationToken.create({
-    data: { token: { demo: "seed-token" } },
-  });
-  stubCounts.VerificationToken = 1;
   await prisma.permission.create({
     data: {
-      userId: { demoUserId: adminId },
-      resource: { name: "demo.explore" },
+      role: "SUPER_ADMIN",
+      resource: "demo.explore",
+      actions: ["read"],
     },
   });
   stubCounts.Permission = 1;

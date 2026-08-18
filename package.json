@@ -1,6 +1,6 @@
 {
-  "name": "stock-inventory",
-  "version": "2.0.1",
+  "name": "buildstock",
+  "version": "1.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev --turbo",
@@ -22,7 +22,12 @@
     "script:seed-demo-catalog": "tsx scripts/seed-demo-catalog.ts",
     "script:delete-all-suppliers": "tsx scripts/delete-all-suppliers.ts",
     "script:delete-all-categories": "tsx scripts/delete-all-categories.ts",
-    "script:delete-user": "tsx scripts/delete-user.ts"
+    "script:delete-user": "tsx scripts/delete-user.ts",
+    "seed": "tsx scripts/seed-realistic-data.ts",
+    "validate:seed": "tsx scripts/validate-realistic-seed.ts"
+  },
+  "prisma": {
+    "seed": "tsx scripts/seed-realistic-data.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -70,7 +75,6 @@
     "lucide-react": "^0.562.0",
     "mongodb": "^4.17.2",
     "next": "^16.0.0",
-    "next-auth": "^5.0.0-beta.30",
     "next-themes": "^0.4.3",
     "papaparse": "^5.5.3",
     "qrcode": "^1.5.4",
@@ -99,6 +103,7 @@
     "eslint": "^9",
     "eslint-config-next": "^16.0.0",
     "eslint-import-resolver-typescript": "^3.10.1",
+    "mongodb-memory-server": "^11.2.0",
     "postcss": "^8.5.3",
     "prisma": "^6.4.1",
     "tailwindcss": "^3.4.17",

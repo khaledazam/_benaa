@@ -44,7 +44,7 @@ import Quantity from "./form-fields/QuantityField";
 import Price from "./form-fields/PriceField";
 import ImageField from "./form-fields/ImageField";
 import ExpirationDateField from "./form-fields/ExpirationDateField";
-import { Product } from "@/types";
+import { Product, ProductStatus } from "@/types";
 import {
   productSchema,
   productFormSubmitSchema,
@@ -250,7 +250,7 @@ export default function AddProductDialog({
           sku: data.sku,
           price: price,
           quantity: quantity,
-          status,
+          status: status as ProductStatus,
           categoryId: selectedCategory,
           supplierId: selectedSupplier,
           userId: userId,
@@ -290,7 +290,7 @@ export default function AddProductDialog({
           sku: data.sku,
           price: price,
           quantity: quantity,
-          status,
+          status: status as ProductStatus,
           categoryId: selectedCategory,
           supplierId: selectedSupplier,
           imageUrl: data.imageUrl || undefined,

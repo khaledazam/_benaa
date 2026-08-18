@@ -1,36 +1,73 @@
-/**
- * Next.js 16 Proxy — lightweight cookie-existence check.
- * Runs as a network boundary handler so unauthenticated visitors are
- * redirected to /login instantly without starting a serverless function.
- *
- * NO fetch / API call / JWT verification here; server components and
- * API routes handle full session validation.
- */
-
 import { NextRequest, NextResponse } from "next/server";
 
-const PUBLIC = new Set(["/login", "/register"]);
+/**
+ * Protected path prefixes requiring authentication.
+ */
+const PROTECTED_PATHS = [
+  "/admin",
+  "/dashboard",
+  "/products",
+  "/categories",
+  "/warehouses",
+  "/inventory",
+  "/suppliers",
+  "/purchasing",
+  "/reports",
+  "/orders",
+  "/invoices",
+  "/settings",
+  "/business-insights",
+  "/support-tickets",
+  "/client",
+  "/supplier",
+];
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  if (PUBLIC.has(pathname)) {
+  const isProtectedPath = PROTECTED_PATHS.some(
+    (prefix) =>
+      pathname === prefix || pathname.startsWith(`${prefix}/`)
+  );
+
+  // Public route
+  if (!isProtectedPath) {
     return NextResponse.next();
   }
 
-  const session = request.cookies.get("session_id")?.value;
-  if (!session || session === "null" || session === "undefined") {
-    const url = request.nextUrl.clone();
-    url.pathname = "/login";
-    url.search = "";
-    return NextResponse.redirect(url);
+  // Check session cookie
+  const sessionToken = request.cookies.get("session_id")?.value;
+
+  if (
+    !sessionToken ||
+    sessionToken === "null" ||
+    sessionToken === "undefined"
+  ) {
+    const loginUrl = new URL("/login", request.url);
+
+    loginUrl.searchParams.set(
+      "callbackUrl",
+      pathname
+    );
+
+    return NextResponse.redirect(loginUrl);
   }
 
-  return NextResponse.next();
+  // Security headers
+  const response = NextResponse.next();
+
+  response.headers.set("X-Frame-Options", "DENY");
+  response.headers.set("X-Content-Type-Options", "nosniff");
+  response.headers.set(
+    "Referrer-Policy",
+    "strict-origin-when-cross-origin"
+  );
+
+  return response;
 }
 
 export const config = {
   matcher: [
-    "/((?!api|_next/static|_next/image|favicon\\.ico|.*\\.svg|.*\\.png|.*\\.jpg|.*\\.woff|.*\\.woff2).*)",
+    "/((?!_next/static|_next/image|favicon\\.ico|images|api/auth).*)",
   ],
 };

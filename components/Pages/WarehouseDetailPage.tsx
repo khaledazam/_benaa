@@ -38,6 +38,7 @@ import {
 } from "@/hooks/queries";
 import { useBackWithRefresh } from "@/hooks/use-back-with-refresh";
 import { resolveDetailAuditUserHref } from "@/lib/navigation/audit-user-href";
+import LocationTree from "@/components/locations/LocationTree";
 import { useAuth } from "@/contexts";
 import Navbar from "@/components/layouts/Navbar";
 import {
@@ -709,6 +710,13 @@ export default function WarehouseDetailPage({
               </GlassCardBody>
             </GlassCard>
           </div>
+
+          {/* PHYSICAL LOCATION HIERARCHY TREE */}
+          {warehouseId && (
+            <div className="my-6">
+              <LocationTree warehouseId={warehouseId} />
+            </div>
+          )}
 
           {!isLoadingStock && (
             <WarehouseInsightsSection

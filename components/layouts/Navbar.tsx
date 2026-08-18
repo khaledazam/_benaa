@@ -19,10 +19,12 @@ import {
   MessageSquare,
   FileCode,
   Activity,
+  Globe,
 } from "lucide-react";
 import { AiFillProduct } from "react-icons/ai";
 
 import { useAuth } from "@/contexts/auth-context";
+import { useLanguage } from "@/contexts/language-context";
 import { setPostLogoutGoodbye } from "@/lib/auth/post-logout-goodbye";
 import { clearAuthToastMarkers } from "@/components/shared/AuthSessionToasts";
 import { useToast } from "@/hooks/use-toast";
@@ -56,6 +58,8 @@ import {
   type RoleNavItem,
 } from "@/lib/navigation/role-nav-config";
 import { navbarNavLinkClass } from "@/lib/navigation/nav-link-styles";
+
+import { LanguageToggle } from "@/components/shared/LanguageToggle";
 
 /** Profile menu entries — paths shared with RouteWarmPrefetch (REQ-0094). */
 const PROFILE_MENU_LINKS = [
@@ -131,6 +135,7 @@ interface NavbarProps {
  */
 export default function Navbar({ children }: NavbarProps) {
   const { user, isCheckingAuth } = useAuth();
+  const { t } = useLanguage();
   const pathname = usePathname();
   const { toast } = useToast();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -226,7 +231,7 @@ export default function Navbar({ children }: NavbarProps) {
               <AiFillProduct className="text-sm sm:text-lg text-rose-600 dark:text-rose-400 transition-transform group-hover:scale-110 drop-shadow-[0_2px_8px_rgba(225,29,72,0.4)]" />
             </div>
             <h1 className="text-sm sm:text-lg font-medium tracking-tight bg-gradient-to-r from-rose-600 to-gray-900 dark:from-rose-400 dark:to-gray-100 bg-clip-text text-transparent transition-all duration-300 ease-in-out group-hover:from-rose-700 group-hover:to-gray-950 dark:group-hover:from-rose-300 dark:group-hover:to-gray-50">
-              Stockly
+              Benaa
             </h1>
           </Link>
         </div>
@@ -303,6 +308,9 @@ export default function Navbar({ children }: NavbarProps) {
             <NotificationBell />
           ) : null}
 
+          {/* Language Toggle */}
+          <LanguageToggle />
+
           {/* Mode Toggle */}
           <ModeToggle />
 
@@ -350,6 +358,13 @@ export default function Navbar({ children }: NavbarProps) {
                     </p>
                   </div>
                 </DropdownMenuLabel>
+                <DropdownMenuSeparator className="bg-gray-200 dark:bg-gray-700" />
+                <div className="px-2 py-1.5 flex items-center justify-between">
+                  <span className="text-xs font-medium text-gray-600 dark:text-gray-300">
+                    Language / اللغة
+                  </span>
+                  <LanguageToggle />
+                </div>
                 <DropdownMenuSeparator className="bg-gray-200 dark:bg-gray-700" />
                 {PROFILE_MENU_LINKS.map(({ path, label, Icon }) => (
                   <DropdownMenuItem

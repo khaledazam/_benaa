@@ -8,7 +8,7 @@ import { KeyboardShortcutsProvider } from "@/components/providers/KeyboardShortc
 import { Poppins } from "next/font/google";
 import localFont from "next/font/local";
 import React from "react";
-import { AuthProvider } from "@/contexts";
+import { AuthProvider, LanguageProvider } from "@/contexts";
 import { ShellSsrProvider } from "@/contexts/shell-ssr-context";
 import { getSession } from "@/lib/auth-server";
 import { mapSessionToAppUser } from "@/lib/auth/map-session-user";
@@ -43,38 +43,25 @@ export const dynamic = "force-dynamic";
 
 export const metadata = {
   title: {
-    default: "Stockly — Warehouse & Stock Inventory Management System",
-    template: "%s | Stockly — Warehouse & Stock Inventory Management System",
+    default: "Benaa — Construction Materials & Modern Decoration Warehouse Management System",
+    template: "%s | Benaa",
   },
   description:
-    "Stockly is a full-stack warehouse and stock inventory management system built with Next.js. Manage products, categories, suppliers, orders, invoices, and warehouses. Role-based access for admin, client, and supplier. Analytics dashboard, QR codes, export, and secure JWT authentication. By Arnob Mahmud.",
-  authors: [
-    {
-      name: "Arnob Mahmud",
-      url: "https://www.arnobmahmud.com",
-      email: "contact@arnobmahmud.com",
-    },
-  ],
-  creator: "Arnob Mahmud",
-  publisher: "Arnob Mahmud",
-  applicationName: "Stockly",
+    "Benaa is a professional warehouse management system for construction materials and decoration suppliers. Manage products, categories, suppliers, purchase orders, invoices, and multi-warehouse stock with full auditability. Role-based access for administrators, warehouse managers, storekeepers, and purchasing officers.",
+  applicationName: "Benaa",
   keywords: [
-    "stock inventory",
-    "inventory management",
     "warehouse management",
-    "stock management system",
-    "Next.js",
-    "React",
-    "Prisma",
-    "product catalog",
-    "orders",
-    "invoices",
-    "suppliers",
-    "categories",
-    "JWT authentication",
-    "responsive web app",
-    "business dashboard",
-    "Arnob Mahmud",
+    "inventory management",
+    "construction materials",
+    "building materials",
+    "decoration warehouse",
+    "stock management",
+    "tiles",
+    "paints",
+    "sanitary ware",
+    "purchase orders",
+    "stock movement",
+    "multi-warehouse",
   ],
   icons: {
     icon: "/favicon.ico",
@@ -82,30 +69,29 @@ export const metadata = {
     other: [{ rel: "icon", url: "/favicon.ico" }],
   },
   metadataBase: new URL(
-    process.env.NEXT_PUBLIC_APP_URL ?? "https://stockly-inventory.vercel.app",
+    process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
   ),
   openGraph: {
     type: "website",
     locale: "en_US",
-    title: "Stockly — Warehouse & Stock Inventory Management System",
+    title: "Benaa — Construction Materials & Modern Decoration Warehouse Management System",
     description:
-      "Efficiently manage products, orders, invoices, and warehouses with Stockly. Secure, responsive, role-based inventory system. By Arnob Mahmud.",
-    url: "https://stockly-inventory.vercel.app",
-    siteName: "Stockly",
+      "Professional warehouse management system for construction materials and decoration suppliers. Manage stock, purchase orders, and multi-warehouse inventory with full auditability.",
+    siteName: "Benaa",
     images: [
       {
         url: "/favicon.ico",
         width: 32,
         height: 32,
-        alt: "Stockly — Stock Inventory Management",
+        alt: "BuildStock — Warehouse Management System",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Stockly — Warehouse & Stock Inventory Management System",
+    title: "BuildStock — Construction Materials & Modern Decoration Warehouse Management System",
     description:
-      "Efficiently manage products, orders, invoices, and warehouses. Secure, responsive inventory system. By Arnob Mahmud.",
+      "Professional warehouse management system for construction materials and decoration suppliers.",
     images: ["/favicon.ico"],
   },
   robots: {
@@ -145,32 +131,34 @@ export default async function RootLayout({
         <ErrorBoundary>
           <QueryProvider>
             <AuthProvider initialUser={initialUser}>
-              <ShellSsrProvider
-                value={
-                  shellNotifications ?? {
-                    initialNotifications: undefined,
-                    initialUnreadCount: undefined,
+              <LanguageProvider>
+                <ShellSsrProvider
+                  value={
+                    shellNotifications ?? {
+                      initialNotifications: undefined,
+                      initialUnreadCount: undefined,
+                    }
                   }
-                }
-              >
-              <RouteWarmPrefetch />
-              <SuppressApiErrorOverlay />
-              <ThemeProvider
-                attribute="class"
-                defaultTheme="system"
-                enableSystem
-                disableTransitionOnChange
-              >
-                <TooltipProvider delayDuration={200}>
-                  <KeyboardShortcutsProvider>
-                    {children}
-                  </KeyboardShortcutsProvider>
-                </TooltipProvider>
-              </ThemeProvider>
-              {/* Toaster must mount before AuthSessionToasts so useToast listeners exist when deferred toasts fire */}
-              <Toaster />
-              <AuthSessionToasts />
-              </ShellSsrProvider>
+                >
+                <RouteWarmPrefetch />
+                <SuppressApiErrorOverlay />
+                <ThemeProvider
+                  attribute="class"
+                  defaultTheme="system"
+                  enableSystem
+                  disableTransitionOnChange
+                >
+                  <TooltipProvider delayDuration={200}>
+                    <KeyboardShortcutsProvider>
+                      {children}
+                    </KeyboardShortcutsProvider>
+                  </TooltipProvider>
+                </ThemeProvider>
+                {/* Toaster must mount before AuthSessionToasts so useToast listeners exist when deferred toasts fire */}
+                <Toaster />
+                <AuthSessionToasts />
+                </ShellSsrProvider>
+              </LanguageProvider>
             </AuthProvider>
           </QueryProvider>
         </ErrorBoundary>

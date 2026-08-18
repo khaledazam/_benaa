@@ -300,7 +300,7 @@ export async function POST(request: NextRequest) {
               name: String(rowData.name),
               sku: String(rowData.sku),
               price: Number(rowData.price),
-              quantity: BigInt(Number(rowData.quantity)),
+              quantity: Number(rowData.quantity),
               status: String(rowData.status),
               categoryId,
               supplierId,

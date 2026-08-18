@@ -14,6 +14,7 @@ import {
   updateWarehouseBodySchema,
 } from "@/lib/validations/warehouse";
 
+import { createCorsHeaders, handleCorsPreflight } from "@/lib/api/cors";
 import { scheduleInvalidateWarehouseCaches } from "@/lib/cache";
 
 /**
@@ -22,18 +23,28 @@ import { scheduleInvalidateWarehouseCaches } from "@/lib/cache";
  */
 export async function GET(request: NextRequest) {
   try {
+    const responseHeaders = createCorsHeaders(request);
+
     const session = await getSessionFromRequest(request);
     if (!session) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: responseHeaders });
     }
 
     const userId = session.id;
+    const isAdminRole =
+      session.role === "SUPER_ADMIN" ||
+      session.role === "ADMIN" ||
+      session.role === "WAREHOUSE_MANAGER" ||
+      session.role === "STOREKEEPER" ||
+      session.role === "INVENTORY_OFFICER" ||
+      session.role === "PURCHASING_OFFICER" ||
+      session.role === "VIEWER";
 
     const warehouses = await prisma.warehouse.findMany({
-      where: { userId },
+      where: isAdminRole ? {} : { userId },
     });
 
-    return NextResponse.json(warehouses);
+    return NextResponse.json(warehouses, { headers: responseHeaders });
   } catch (error) {
     logger.error("Error fetching warehouses:", error);
     return NextResponse.json(
@@ -263,4 +274,8 @@ export async function DELETE(request: NextRequest) {
       { status: 500 },
     );
   }
+}
+
+export async function OPTIONS(request: NextRequest) {
+  return handleCorsPreflight(request);
 }

@@ -5,6 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { createCorsHeaders, handleCorsPreflight } from "@/lib/api/cors";
 import { getSessionFromRequest } from "@/utils/auth";
 import { logger } from "@/lib/logger";
 import {
@@ -54,6 +55,8 @@ import {
  */
 export async function GET(request: NextRequest) {
   try {
+    const responseHeaders = createCorsHeaders(request);
+
     // Rate limiting check
     const rateLimitResponse = await withRateLimit(
       request,
@@ -65,12 +68,21 @@ export async function GET(request: NextRequest) {
 
     const session = await getSessionFromRequest(request);
     if (!session) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: responseHeaders });
     }
 
     const isSupplier = session.role === "supplier";
     let cacheKey: string;
     let productWhere: { userId: string } | { supplierId: string };
+
+    const isAdminRole =
+      session.role === "SUPER_ADMIN" ||
+      session.role === "ADMIN" ||
+      session.role === "WAREHOUSE_MANAGER" ||
+      session.role === "STOREKEEPER" ||
+      session.role === "INVENTORY_OFFICER" ||
+      session.role === "PURCHASING_OFFICER" ||
+      session.role === "VIEWER";
 
     if (isSupplier) {
       const supplier = await getSupplierByUserId(session.id);
@@ -83,6 +95,9 @@ export async function GET(request: NextRequest) {
         withOwnerNames: true,
       });
       productWhere = { supplierId: supplier.id };
+    } else if (isAdminRole) {
+      cacheKey = cacheKeys.products.list({ userId: "all_admin" });
+      productWhere = {} as any;
     } else {
       cacheKey = cacheKeys.products.list({ userId: session.id });
       productWhere = { userId: session.id };
@@ -105,7 +120,7 @@ export async function GET(request: NextRequest) {
       )
     ) {
       logger.info(`✅ Cache hit for products: ${cacheKey}`);
-      return NextResponse.json(cachedProducts);
+      return NextResponse.json(cachedProducts, { headers: responseHeaders });
     }
 
     // Cache miss: fetch from database
@@ -161,7 +176,7 @@ export async function GET(request: NextRequest) {
     // Cache the result for 5 minutes
     await setCache(cacheKey, transformedProducts, 300, { fetchedAt: cacheReadStartedAt });
 
-    return NextResponse.json(transformedProducts);
+    return NextResponse.json(transformedProducts, { headers: responseHeaders });
   } catch (error) {
     logger.error("Error fetching products:", error);
     return NextResponse.json(
@@ -236,8 +251,8 @@ export async function POST(request: NextRequest) {
         name,
         sku,
         price,
-        quantity: BigInt(quantity) as any,
-        status,
+        quantity: quantity,
+        status: status || "Available",
         userId,
         createdBy: userId, // Set createdBy same as userId
         categoryId,
@@ -462,7 +477,7 @@ export async function PUT(request: NextRequest) {
 
     const quantityChanged =
       quantity !== undefined &&
-      existingProduct.quantity !== BigInt(quantity);
+      existingProduct.quantity !== quantity;
 
     let stockReconcile:
       | {
@@ -544,7 +559,7 @@ export async function PUT(request: NextRequest) {
     if (name && name !== existingProduct.name) fieldsUpdated.push("Name");
     if (sku && sku !== existingProduct.sku) fieldsUpdated.push("SKU");
     if (price !== undefined && Number(existingProduct.price) !== price) fieldsUpdated.push("Price");
-    if (quantity !== undefined && existingProduct.quantity !== BigInt(quantity)) fieldsUpdated.push("Quantity");
+    if (quantity !== undefined && existingProduct.quantity !== quantity) fieldsUpdated.push("Quantity");
     if (status && status !== existingProduct.status) fieldsUpdated.push("Status");
     if (categoryId && categoryId !== existingProduct.categoryId) fieldsUpdated.push("Category");
     if (supplierId && supplierId !== existingProduct.supplierId) fieldsUpdated.push("Supplier");
@@ -914,4 +929,8 @@ export async function DELETE(request: NextRequest) {
       { status: 500 },
     );
   }
+}
+
+export async function OPTIONS(request: NextRequest) {
+  return handleCorsPreflight(request);
 }

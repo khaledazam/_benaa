@@ -217,7 +217,7 @@ export async function getDashboardForAdmin(
     prisma.category.count({ where: whereUser }),
     prisma.order.count({ where: whereStoreOrders }),
     prisma.invoice.count({ where: whereInvoiceForStore }),
-    prisma.warehouse.count({ where: whereUser }),
+    prisma.warehouse.count(),
     prisma.supportTicket.count({ where: { assignedToId: userId } }),
     prisma.productReview.count({ where: reviewWhere }),
     prisma.order.aggregate({ where: whereStoreOrders, _sum: { total: true } }),
@@ -360,11 +360,10 @@ export async function getDashboardForAdmin(
       _count: { id: true },
       _sum: { total: true, amountPaid: true, amountDue: true },
     }),
-    prisma.warehouse.count({ where: { ...whereUser, status: true } }),
-    prisma.warehouse.count({ where: { ...whereUser, status: false } }),
+    prisma.warehouse.count({ where: { status: true } }),
+    prisma.warehouse.count({ where: { status: false } }),
     prisma.warehouse.groupBy({
       by: ["type"],
-      where: whereUser,
       _count: { id: true },
     }),
     selfOrderIds.length > 0
