@@ -128,7 +128,9 @@ export async function getUserDetailForPage(
   session: SessionForDetail,
   id: string,
 ): Promise<(UserForAdmin & { overview: UserOverview }) | null> {
-  if (session.role !== "admin") return null;
+  const role = session.role?.toUpperCase() || "";
+  const isAdmin = role === "ADMIN" || role === "SUPER_ADMIN" || role === "SUPERADMIN";
+  if (!isAdmin) return null;
 
   const record = await getUserById(id);
   if (!record) return null;

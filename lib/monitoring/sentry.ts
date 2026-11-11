@@ -5,6 +5,7 @@
 
 import * as Sentry from "@sentry/nextjs";
 import { getSentryDsn, isSentryEnabled } from "./sentry-config";
+import { redactLogValue, redactText, sanitizedError } from '@/lib/log-redaction';
 
 export {
   getSentryDsn,
@@ -22,11 +23,11 @@ export function captureException(
 
   try {
     if (context) {
-      Sentry.captureException(error, {
-        contexts: { custom: context },
+      Sentry.captureException(sanitizedError(error), {
+        contexts: { custom: redactLogValue(context) as Record<string, unknown> },
       });
     } else {
-      Sentry.captureException(error);
+      Sentry.captureException(sanitizedError(error));
     }
   } catch {
     // SDK not initialized
@@ -44,12 +45,12 @@ export function captureMessage(
 
   try {
     if (context) {
-      Sentry.captureMessage(message, {
+      Sentry.captureMessage(redactText(message), {
         level,
-        contexts: { custom: context },
+        contexts: { custom: redactLogValue(context) as Record<string, unknown> },
       });
     } else {
-      Sentry.captureMessage(message, { level });
+      Sentry.captureMessage(redactText(message), { level });
     }
   } catch {
     // SDK not initialized
@@ -70,8 +71,6 @@ export function setUserContext(user: {
   try {
     Sentry.setUser({
       id: user.id,
-      email: user.email,
-      username: user.username || user.name,
     });
     if (user.role) {
       Sentry.setTag("role", user.role);
@@ -124,10 +123,10 @@ export function addBreadcrumb(
 
   try {
     Sentry.addBreadcrumb({
-      message,
+      message: redactText(message),
       category,
       level,
-      data,
+      data: redactLogValue(data) as Record<string, unknown> | undefined,
     });
   } catch {
     // SDK not initialized

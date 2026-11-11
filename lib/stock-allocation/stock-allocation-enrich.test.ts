@@ -16,6 +16,8 @@ vi.mock("@/prisma/client", () => ({
     category: { findMany: vi.fn() },
     supplier: { findMany: vi.fn() },
     stockAllocation: { findMany: vi.fn() },
+    stockReservationItem: { findMany: vi.fn().mockResolvedValue([]) },
+    projectMaterialIssueItem: { findMany: vi.fn().mockResolvedValue([]) },
   },
 }));
 

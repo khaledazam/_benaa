@@ -1,3 +1,4 @@
+import { withWarehouseScope } from "@/lib/auth/warehouse-route-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth-server";
 import { mapSessionToAppUser } from "@/lib/auth/map-session-user";
@@ -5,13 +6,14 @@ import { hasPermission, BuildStockPermissions } from "@/lib/auth/permissions";
 import { createDispatchSchema, getDispatchesQuerySchema } from "@/lib/validations/dispatch-validations";
 import { createDispatch, getDispatches } from "@/lib/dispatch/dispatchService";
 
-export async function GET(req: NextRequest) {
+async function scopedGET(req: NextRequest) {
   try {
     const session = await getSession();
+    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const user = session ? mapSessionToAppUser(session) : null;
     const role = user?.role || "VIEWER";
 
-    if (!hasPermission(role, BuildStockPermissions.DISPATCH_VIEW)) {
+    if (!hasPermission(user, BuildStockPermissions.DISPATCH_VIEW)) {
       return NextResponse.json({ error: "Forbidden: Insufficient permissions to view Dispatches" }, { status: 403 });
     }
 
@@ -39,13 +41,14 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export async function POST(req: NextRequest) {
+async function scopedPOST(req: NextRequest) {
   try {
     const session = await getSession();
+    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const user = session ? mapSessionToAppUser(session) : null;
     const role = user?.role || "VIEWER";
 
-    if (!user || !hasPermission(role, BuildStockPermissions.DISPATCH_CREATE)) {
+    if (!user || !hasPermission(user, BuildStockPermissions.DISPATCH_CREATE)) {
       return NextResponse.json({ error: "Forbidden: Insufficient permissions to create Dispatch" }, { status: 403 });
     }
 
@@ -62,3 +65,6 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+
+export const GET = withWarehouseScope(scopedGET);
+export const POST = withWarehouseScope(scopedPOST);

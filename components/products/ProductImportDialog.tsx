@@ -112,7 +112,7 @@ export function ProductImportDialog({
       }
 
       setImportResult({
-        success: true,
+        success: data.success === true,
         totalRows: data.totalRows,
         successRows: data.successRows,
         failedRows: data.failedRows,
@@ -122,8 +122,9 @@ export function ProductImportDialog({
       invalidateAfterCatalogChange(queryClient);
 
       toast({
-        title: "Import Successful!",
-        description: `Successfully imported ${data.successRows} of ${data.totalRows} products.`,
+        title: data.failedRows === 0 ? "Import Successful!" : data.successRows > 0 ? "Import completed with rejected rows" : "No products imported",
+        description: `Imported ${data.successRows} of ${data.totalRows} products; rejected ${data.failedRows}.`,
+        variant: data.failedRows > 0 ? "destructive" : "default",
       });
 
       // Reset file input

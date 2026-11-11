@@ -7,10 +7,11 @@ import { getCustomers, createCustomer } from "@/lib/customers/customerService";
 export async function GET(req: NextRequest) {
   try {
     const session = await getSession();
+    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const user = session ? mapSessionToAppUser(session) : null;
     const role = user?.role || "VIEWER";
 
-    if (!hasPermission(role, BuildStockPermissions.CUSTOMER_VIEW)) {
+    if (!hasPermission(user, BuildStockPermissions.CUSTOMER_VIEW)) {
       return NextResponse.json({ error: "Unauthorized access" }, { status: 403 });
     }
 
@@ -30,10 +31,11 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const session = await getSession();
+    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const user = session ? mapSessionToAppUser(session) : null;
     const role = user?.role || "VIEWER";
 
-    if (!hasPermission(role, BuildStockPermissions.CUSTOMER_CREATE)) {
+    if (!hasPermission(user, BuildStockPermissions.CUSTOMER_CREATE)) {
       return NextResponse.json({ error: "Insufficient permissions to create customers" }, { status: 403 });
     }
 

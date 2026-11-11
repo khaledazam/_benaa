@@ -6,6 +6,7 @@
 import { prisma } from "@/prisma/client";
 import type { UpdateUserAdminInput, CreateUserAdminInput } from "@/types";
 import bcrypt from "bcryptjs";
+import { employeeUsername } from "@/lib/auth/identity";
 
 const USER_SELECT = {
   id: true,
@@ -58,7 +59,7 @@ export async function createUserAdmin(data: CreateUserAdminInput) {
       email: data.email,
       name: data.name,
       password: hashedPassword,
-      username: data.username || null,
+      username: data.username ? employeeUsername(data.username) : null,
       role: (data.role as string) || "user",
       createdAt: new Date(),
     },

@@ -5,8 +5,9 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionFromRequest } from "@/utils/auth";
+import { getSessionFromRequest, isAccountAccessAllowed } from "@/utils/auth";
 import { logger } from "@/lib/logger";
+import { effectivePermissions } from '@/lib/auth/permissions';
 
 /**
  * GET /api/auth/session
@@ -27,9 +28,18 @@ export async function GET(request: NextRequest) {
       email: user.email,
       image: user.image || null, // Profile image URL (from Google OAuth)
       role: user.role ?? "user",
+      primaryWarehouseId: user.primaryWarehouseId,
+      warehouseIds: user.warehouseIds,
+      permissions: user.permissions,
+      permissionsRestricted: user.permissionsRestricted,
+      effectivePermissions: effectivePermissions(user),
+      status: user.status,
+      isSubscriptionActive: isAccountAccessAllowed(user),
+      subscriptionStartDate: user.subscriptionStartDate,
+      subscriptionEndDate: user.subscriptionEndDate,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
-    });
+    }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     logger.error("Session error:", error);
     return NextResponse.json(

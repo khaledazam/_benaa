@@ -52,9 +52,29 @@ let dbPurchaseOrders: any[] = [];
 let dbPurchaseOrderItems: any[] = [];
 let dbAuditLogs: any[] = [];
 let dbProducts: any[] = [];
+let dbPostingActor: any = { id: "user-auditor-1", role: "SUPER_ADMIN", status: true, warehouseIds: ["wh-main", "wh-a", "wh-b"] };
+let dbInventoryOperations: any[] = [];
 
 vi.mock("@/prisma/client", () => {
   const mockTx = {
+    user: {
+      findUnique: vi.fn(async ({ where }: any) => where.id === dbPostingActor.id ? dbPostingActor : null),
+      update: vi.fn(async ({ where, data }: any) => {
+        if (where.id !== dbPostingActor.id) throw new Error("User not found");
+        return Object.assign(dbPostingActor, data);
+      }),
+    },
+    inventoryOperation: {
+      findUnique: vi.fn(async ({ where }: any) => dbInventoryOperations.find(r => r.operationKey === where.operationKey) || null),
+      create: vi.fn(async ({ data }: any) => {
+        if (dbInventoryOperations.some(r => r.operationKey === data.operationKey)) throw Object.assign(new Error("Duplicate key"), { code: "P2002" });
+        const receipt = { id: `op-${dbInventoryOperations.length + 1}`, ...data }; dbInventoryOperations.push(receipt); return receipt;
+      }),
+    },
+    // Explicit fixture tables for the authoritative availability/unit contract.
+    unit: { findUnique: vi.fn(async ({ where }: any) => [{ id: "unit-m2", active: true, type: "area" }].find(u => u.id === where.id) || null) },
+    projectMaterialIssueItem: { findMany: vi.fn(async () => []) },
+
     product: {
       findUnique: vi.fn(async ({ where }: any) => dbProducts.find((p) => p.id === where.id) || null),
       update: vi.fn(async ({ where, data }: any) => {
@@ -85,18 +105,25 @@ vi.mock("@/prisma/client", () => {
         if (existing) {
           Object.assign(existing, update);
         } else {
-          existing = { id: `sa-${dbStockAllocations.length + 1}`, ...create };
+          existing = { id: `sa-${dbStockAllocations.length + 1}`, reservedQuantity: 0, ...create };
           dbStockAllocations.push(existing);
         }
         return existing;
       }),
       update: vi.fn(async ({ where, data }: any) => {
         const sa = dbStockAllocations.find((a) => a.productId === where.productId_warehouseId?.productId && a.warehouseId === where.productId_warehouseId?.warehouseId);
-        if (sa) Object.assign(sa, data);
+        if (sa) {
+          const { reservedQuantity, ...fields } = data;
+          Object.assign(sa, fields);
+          if (typeof reservedQuantity === "number") sa.reservedQuantity = reservedQuantity;
+          else if (reservedQuantity?.increment !== undefined) sa.reservedQuantity = (sa.reservedQuantity || 0) + reservedQuantity.increment;
+        }
         return sa;
       }),
     },
     stockLocationAllocation: {
+      count: vi.fn(async ({ where }: any) => dbStockLocationAllocations.filter(a =>
+        (!where.productId || a.productId === where.productId) && (!where.warehouseId || a.warehouseId === where.warehouseId)).length),
       findMany: vi.fn(async ({ where }: any) => {
         return dbStockLocationAllocations.filter((a) => {
           const matchProd = !where?.productId || a.productId === where.productId;
@@ -115,7 +142,7 @@ vi.mock("@/prisma/client", () => {
         if (existing) {
           Object.assign(existing, update);
         } else {
-          existing = { id: `sla-${dbStockLocationAllocations.length + 1}`, ...create };
+          existing = { id: `sla-${dbStockLocationAllocations.length + 1}`, reservedQuantity: 0, ...create };
           dbStockLocationAllocations.push(existing);
         }
         return existing;
@@ -127,6 +154,10 @@ vi.mock("@/prisma/client", () => {
       }),
     },
     stockMovement: {
+      updateMany: vi.fn(async ({ where, data }: any) => {
+        const rows = dbStockMovements.filter(m => (!where.id?.in || where.id.in.includes(m.id)) && (!where.id || typeof where.id !== "string" || m.id === where.id));
+        rows.forEach(m => Object.assign(m, data)); return { count: rows.length };
+      }),
       create: vi.fn(async ({ data }: any) => {
         const sm = { id: `sm-${dbStockMovements.length + 1}`, createdAt: new Date(), ...data };
         dbStockMovements.push(sm);
@@ -230,6 +261,10 @@ vi.mock("@/prisma/client", () => {
       }),
     },
     dispatch: {
+      updateMany: vi.fn(async ({ where, data }: any) => {
+        const rows = dbDispatches.filter(d => (!where.id || d.id === where.id) && (!where.status || d.status === where.status));
+        rows.forEach(d => Object.assign(d, data)); return { count: rows.length };
+      }),
       findMany: vi.fn(async ({ where }: any) => {
         return dbDispatches.filter((d) => {
           const matchWh = !where?.warehouseId || d.warehouseId === where.warehouseId;
@@ -323,22 +358,25 @@ vi.mock("@/prisma/client", () => {
       ...mockTx,
       $transaction: vi.fn(async (cb: any) => {
         const snapshot = {
-          dbStockAllocations: JSON.parse(JSON.stringify(dbStockAllocations)),
-          dbStockLocationAllocations: JSON.parse(JSON.stringify(dbStockLocationAllocations)),
-          dbStockMovements: JSON.parse(JSON.stringify(dbStockMovements)),
-          dbSalesOrders: JSON.parse(JSON.stringify(dbSalesOrders)),
-          dbReservations: JSON.parse(JSON.stringify(dbReservations)),
-          dbReservationItems: JSON.parse(JSON.stringify(dbReservationItems)),
-          dbPickLists: JSON.parse(JSON.stringify(dbPickLists)),
-          dbDispatches: JSON.parse(JSON.stringify(dbDispatches)),
-          dbDispatchItems: JSON.parse(JSON.stringify(dbDispatchItems)),
-          dbDispatchBinAllocations: JSON.parse(JSON.stringify(dbDispatchBinAllocations)),
-          dbAuditLogs: JSON.parse(JSON.stringify(dbAuditLogs)),
-          dbProducts: JSON.parse(JSON.stringify(dbProducts)),
+          dbPostingActor: structuredClone(dbPostingActor),
+          dbStockAllocations: structuredClone(dbStockAllocations),
+          dbStockLocationAllocations: structuredClone(dbStockLocationAllocations),
+          dbStockMovements: structuredClone(dbStockMovements),
+          dbSalesOrders: structuredClone(dbSalesOrders),
+          dbReservations: structuredClone(dbReservations),
+          dbReservationItems: structuredClone(dbReservationItems),
+          dbPickLists: structuredClone(dbPickLists),
+          dbDispatches: structuredClone(dbDispatches),
+          dbDispatchItems: structuredClone(dbDispatchItems),
+          dbDispatchBinAllocations: structuredClone(dbDispatchBinAllocations),
+          dbAuditLogs: structuredClone(dbAuditLogs),
+          dbProducts: structuredClone(dbProducts),
+          dbInventoryOperations: structuredClone(dbInventoryOperations),
         };
         try {
           return await cb(mockTx);
         } catch (err) {
+          dbPostingActor = snapshot.dbPostingActor;
           dbStockAllocations = snapshot.dbStockAllocations;
           dbStockLocationAllocations = snapshot.dbStockLocationAllocations;
           dbStockMovements = snapshot.dbStockMovements;
@@ -351,6 +389,7 @@ vi.mock("@/prisma/client", () => {
           dbDispatchBinAllocations = snapshot.dbDispatchBinAllocations;
           dbAuditLogs = snapshot.dbAuditLogs;
           dbProducts = snapshot.dbProducts;
+          dbInventoryOperations = snapshot.dbInventoryOperations;
           throw err;
         }
       }),
@@ -366,10 +405,11 @@ import { executeStockMutation, executeStockTransfer, executeStockRelocation, Sto
 import { createStockReservation } from "@/lib/reservations/reservationService";
 import { createDispatch, postDispatch } from "@/lib/dispatch/dispatchService";
 
-describe("Phase 5E — Inventory Reconciliation & End-to-End Integrity Engine", () => {
+describe("Phase 5E â€” Inventory Reconciliation & End-to-End Integrity Engine", () => {
   const userId = "user-auditor-1";
 
   beforeEach(() => {
+    dbInventoryOperations = [];
     dbStockAllocations = [];
     dbStockLocationAllocations = [];
     dbStockMovements = [];
@@ -390,7 +430,7 @@ describe("Phase 5E — Inventory Reconciliation & End-to-End Integrity Engine", 
     dbProducts = [JSON.parse(JSON.stringify(mockProductTiles)), JSON.parse(JSON.stringify(mockProductMarble))];
   });
 
-  it("SCENARIO 1 — Complete Procurement to Dispatch Lifecycle", async () => {
+  it("SCENARIO 1 â€” Complete Procurement to Dispatch Lifecycle", async () => {
     await executeStockMutation({
       productId: mockProductTiles.id,
       warehouseId: mockWarehouseA.id,
@@ -463,7 +503,7 @@ describe("Phase 5E — Inventory Reconciliation & End-to-End Integrity Engine", 
     expect(recon.status).toBe("HEALTHY");
   });
 
-  it("SCENARIO 2 — Multiple Sales Orders & Allocation Budget Overrun Rejection", async () => {
+  it("SCENARIO 2 â€” Multiple Sales Orders & Allocation Budget Overrun Rejection", async () => {
     await executeStockMutation({
       productId: mockProductTiles.id,
       warehouseId: mockWarehouseA.id,
@@ -489,7 +529,7 @@ describe("Phase 5E — Inventory Reconciliation & End-to-End Integrity Engine", 
     await expect(createStockReservation("so-d", userId)).rejects.toThrow("Insufficient available stock");
   });
 
-  it("SCENARIO 3 — Concurrent Reservations (Atomic Budget Protection)", async () => {
+  it("SCENARIO 3 â€” Concurrent Reservations (Atomic Budget Protection)", async () => {
     await executeStockMutation({
       productId: mockProductTiles.id,
       warehouseId: mockWarehouseA.id,
@@ -512,7 +552,7 @@ describe("Phase 5E — Inventory Reconciliation & End-to-End Integrity Engine", 
     expect(recon.availableStock).toBe(30);
   });
 
-  it("SCENARIO 4 — Concurrent Dispatch (Single Stock Deduction)", async () => {
+  it("SCENARIO 4 â€” Concurrent Dispatch (Single Stock Deduction)", async () => {
     await executeStockMutation({ productId: mockProductTiles.id, warehouseId: mockWarehouseA.id, binId: "bin-a", quantity: 100, movementType: StockMovementTypes.PURCHASE, performedBy: userId });
 
     const so = { id: "so-cd", salesOrderNumber: "SO-CD", customerId: mockCustomer.id, warehouseId: mockWarehouseA.id, status: "APPROVED", items: [{ id: "soi-cd", salesOrderId: "so-cd", productId: mockProductTiles.id, orderedQuantity: 100, unitPrice: 45 }] };
@@ -527,24 +567,29 @@ describe("Phase 5E — Inventory Reconciliation & End-to-End Integrity Engine", 
 
     const draft = await createDispatch(pl.id, userId);
 
-    const posted = await postDispatch(draft.id, userId);
+    const posted = await postDispatch(draft.id, userId, "verified-dispatch-retry");
     expect(posted.status).toBe("POSTED");
-    await expect(postDispatch(draft.id, userId)).rejects.toThrow("cannot be posted");
+    const replay = await postDispatch(draft.id, userId, "verified-dispatch-retry");
+    expect(replay.id).toBe(draft.id);
+    expect(replay.status).toBe("POSTED");
+    await expect(postDispatch("different-dispatch", userId, "verified-dispatch-retry")).rejects.toThrow("Idempotency key payload conflict");
+    expect(dbInventoryOperations.length).toBe(1);
+    expect(dbDispatches.filter(d => d.status === "POSTED").length).toBe(1);
 
     const saleMovements = dbStockMovements.filter((m) => m.movementType === "SALE");
     expect(saleMovements.length).toBe(1);
     expect(saleMovements[0].quantity).toBe(100);
   });
 
-  it("SCENARIO 5 — Multi-Item Atomic Dispatch Rollback", async () => {
+  it("SCENARIO 5 â€” Multi-Item Atomic Dispatch Rollback", async () => {
     await executeStockMutation({ productId: mockProductTiles.id, warehouseId: mockWarehouseA.id, binId: "bin-a", quantity: 100, movementType: StockMovementTypes.PURCHASE, performedBy: userId });
-    await executeStockMutation({ productId: mockProductMarble.id, warehouseId: mockWarehouseA.id, binId: "bin-a", quantity: 20, movementType: StockMovementTypes.PURCHASE, performedBy: userId });
+    await executeStockMutation({ productId: mockProductMarble.id, warehouseId: mockWarehouseA.id, binId: "bin-a", quantity: 50, movementType: StockMovementTypes.PURCHASE, performedBy: userId });
 
     const so = {
       id: "so-mi", salesOrderNumber: "SO-MI", customerId: mockCustomer.id, warehouseId: mockWarehouseA.id, status: "APPROVED",
       items: [
         { id: "soi-a", salesOrderId: "so-mi", productId: mockProductTiles.id, orderedQuantity: 50, unitPrice: 45 },
-        { id: "soi-b", salesOrderId: "so-mi", productId: mockProductMarble.id, orderedQuantity: 20, unitPrice: 120 },
+        { id: "soi-b", salesOrderId: "so-mi", productId: mockProductMarble.id, orderedQuantity: 50, unitPrice: 120 },
       ],
     };
     dbSalesOrders.push(so);
@@ -562,21 +607,29 @@ describe("Phase 5E — Inventory Reconciliation & End-to-End Integrity Engine", 
     );
 
     const draft = await createDispatch(pl.id, userId);
+    const reservationBefore = structuredClone(dbReservationItems);
+    const productBefore = structuredClone(dbProducts);
+    const movementCountBefore = dbStockMovements.length;
 
     const bAlloc = dbStockLocationAllocations.find((a) => a.productId === mockProductMarble.id);
     if (bAlloc) bAlloc.quantity = 0;
     const bWhAlloc = dbStockAllocations.find((a) => a.productId === mockProductMarble.id);
     if (bWhAlloc) bWhAlloc.quantity = 0;
 
-    await expect(postDispatch(draft.id, userId)).rejects.toThrow("Insufficient physical stock");
+    await expect(postDispatch(draft.id, userId, "verified-dispatch-retry")).rejects.toThrow("Insufficient physical stock");
 
+    expect(dbDispatches.find(d => d.id === draft.id)?.status).toBe("DRAFT");
+    expect(dbStockMovements.length).toBe(movementCountBefore);
+    expect(dbReservationItems).toEqual(reservationBefore);
+    expect(dbProducts).toEqual(productBefore);
+    expect(dbInventoryOperations.length).toBe(0);
     const reconA = await reconcileProductWarehouse(mockProductTiles.id, mockWarehouseA.id);
     const reconB = await reconcileProductWarehouse(mockProductMarble.id, mockWarehouseA.id);
     expect(reconA.physicalStock).toBe(100);
     expect(reconB.physicalStock).toBe(0);
   });
 
-  it("SCENARIO 6 — Short Pick Handling", async () => {
+  it("SCENARIO 6 â€” Short Pick Handling", async () => {
     await executeStockMutation({ productId: mockProductTiles.id, warehouseId: mockWarehouseA.id, binId: "bin-a", quantity: 100, movementType: StockMovementTypes.PURCHASE, performedBy: userId });
 
     const so = { id: "so-sp", salesOrderNumber: "SO-SP", customerId: mockCustomer.id, warehouseId: mockWarehouseA.id, status: "APPROVED", items: [{ id: "soi-sp", salesOrderId: "so-sp", productId: mockProductTiles.id, orderedQuantity: 100, unitPrice: 45 }] };
@@ -596,7 +649,7 @@ describe("Phase 5E — Inventory Reconciliation & End-to-End Integrity Engine", 
     expect(recon.physicalStock).toBe(20);
   });
 
-  it("SCENARIO 7 — Stock Relocation with Reservation", async () => {
+  it("SCENARIO 7 â€” Stock Relocation with Reservation", async () => {
     await executeStockMutation({ productId: mockProductTiles.id, warehouseId: mockWarehouseA.id, binId: "bin-a", quantity: 100, movementType: StockMovementTypes.PURCHASE, performedBy: userId });
 
     const so = { id: "so-rel", salesOrderNumber: "SO-REL", customerId: mockCustomer.id, warehouseId: mockWarehouseA.id, status: "APPROVED", items: [{ id: "soi-rel", salesOrderId: "so-rel", productId: mockProductTiles.id, orderedQuantity: 60, unitPrice: 45 }] };
@@ -619,7 +672,7 @@ describe("Phase 5E — Inventory Reconciliation & End-to-End Integrity Engine", 
     expect(recon.status).toBe("HEALTHY");
   });
 
-  it("SCENARIO 8 — Transfer Between Warehouses", async () => {
+  it("SCENARIO 8 â€” Transfer Between Warehouses", async () => {
     await executeStockMutation({ productId: mockProductTiles.id, warehouseId: mockWarehouseA.id, binId: "bin-a", quantity: 100, movementType: StockMovementTypes.PURCHASE, performedBy: userId });
 
     await executeStockTransfer({
@@ -641,7 +694,7 @@ describe("Phase 5E — Inventory Reconciliation & End-to-End Integrity Engine", 
     expect(reconB.status).toBe("HEALTHY");
   });
 
-  it("SCENARIO 9 & 10 — Goods Receipt Draft & Post", async () => {
+  it("SCENARIO 9 & 10 â€” Goods Receipt Draft & Post", async () => {
     const reconBefore = await reconcileProductWarehouse(mockProductTiles.id, mockWarehouseA.id);
     expect(reconBefore.physicalStock).toBe(0);
 
@@ -659,7 +712,7 @@ describe("Phase 5E — Inventory Reconciliation & End-to-End Integrity Engine", 
     expect(reconAfter.ledgerStock).toBe(40);
   });
 
-  it("DATA CORRUPTION SIMULATION — Negative Stock & Inactive Bin Audit", async () => {
+  it("DATA CORRUPTION SIMULATION â€” Negative Stock & Inactive Bin Audit", async () => {
     dbStockLocationAllocations.push({
       id: "sla-corrupt",
       productId: mockProductTiles.id,
@@ -671,6 +724,7 @@ describe("Phase 5E — Inventory Reconciliation & End-to-End Integrity Engine", 
       id: "sa-corrupt",
       productId: mockProductTiles.id,
       warehouseId: mockWarehouseA.id,
+      reservedQuantity: 0,
       quantity: -50,
     });
 

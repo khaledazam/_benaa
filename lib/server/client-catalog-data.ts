@@ -52,7 +52,7 @@ export async function getClientCatalogOverview(
     prisma.product.count({ where: mergeProductListWhere({}) }),
   ]);
 
-  const categoryIds = [...new Set(products.map((p) => p.categoryId))];
+  const categoryIds = [...new Set(products.map((p) => p.categoryId).filter((id): id is string => id !== null))];
   const supplierIds = [...new Set(products.map((p) => p.supplierId))];
   const creatorIds = [
     ...new Set([
@@ -138,8 +138,8 @@ export async function getClientCatalogOverview(
         id: p.id,
         name: p.name,
         sku: p.sku,
-        categoryId: p.categoryId,
-        categoryName: categoryMap.get(p.categoryId) ?? "—",
+        categoryId: p.categoryId ?? "",
+        categoryName: (p.categoryId ? categoryMap.get(p.categoryId) : undefined) ?? "—",
         supplierId: p.supplierId,
         supplierName: supplierEntry?.name ?? "—",
         price: Number(p.price),

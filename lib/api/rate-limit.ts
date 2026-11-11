@@ -5,6 +5,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { checkRateLimit, type RateLimitResult } from "@/lib/cache";
+import { verifyToken } from "@/utils/auth";
+import { createHash } from "node:crypto";
 import { logger } from "@/lib/logger";
 
 /**
@@ -22,48 +24,37 @@ export interface ApiRateLimitConfig {
   /**
    * Get identifier from request (e.g., user ID, IP address)
    */
-  getIdentifier: (request: NextRequest) => string;
+  getIdentifier: (request: NextRequest) => string | Promise<string>;
+}
+
+export function loginRateLimitIdentifier(body: unknown): string {
+  const value=body && typeof body==='object' ? body as Record<string,unknown> : {};
+  const identity=String(value.email || value.username || '').normalize('NFKC').trim().toLowerCase();
+  return 'login:' + createHash('sha256').update(identity).digest('hex');
 }
 
 /**
  * Default rate limit configurations
  */
+function signedIdentity(request: NextRequest): string {
+  const token = request.cookies.get('session_id')?.value || request.headers.get('authorization')?.replace(/^Bearer /, '');
+  const decoded = token ? verifyToken(token) : null;
+  // Never trust x-user-id or caller-controlled IP headers. Unauthenticated work
+  // has a shared coarse bucket; login additionally has a per-identity bucket.
+  return decoded ? 'user:' + decoded.userId : 'public:' + request.nextUrl.pathname;
+}
+
 export const defaultRateLimits = {
   /**
    * Standard API rate limit (600 requests per minute per user/IP).
    * Each page navigation fires ~4-5 API calls; fast clicking 10+ pages should never 429.
    */
-  standard: {
-    limit: 600,
-    window: 60,
-    getIdentifier: (request: NextRequest) => {
-      // Try to get user ID from session, fallback to IP
-      const userId = request.headers.get("x-user-id");
-      if (userId) return `user:${userId}`;
-      return `ip:${request.headers.get("x-real-ip") || request.headers.get("x-forwarded-for") || "unknown"}`;
-    },
-  },
-  /**
-   * Strict rate limit (10 requests per minute)
-   */
-  strict: {
-    limit: 10,
-    window: 60,
-    getIdentifier: (request: NextRequest) => {
-      const userId = request.headers.get("x-user-id");
-      if (userId) return `user:${userId}`;
-      return `ip:${request.headers.get("x-real-ip") || request.headers.get("x-forwarded-for") || "unknown"}`;
-    },
-  },
-  /**
-   * Auth rate limit (5 requests per minute)
-   */
+  standard: { limit: 600, window: 60, getIdentifier: signedIdentity },
+  strict: { limit: 10, window: 60, getIdentifier: signedIdentity },
   auth: {
-    limit: 5,
-    window: 60,
-    getIdentifier: (request: NextRequest) => {
-      // Use IP for auth endpoints to prevent brute force
-      return `ip:${request.headers.get("x-real-ip") || request.headers.get("x-forwarded-for") || "unknown"}`;
+    limit: 5, window: 60,
+    getIdentifier: async (request: NextRequest) => {
+      try { return loginRateLimitIdentifier(await request.clone().json()); } catch { return loginRateLimitIdentifier(null); }
     },
   },
 } as const;
@@ -80,13 +71,19 @@ export const defaultRateLimits = {
 export async function withRateLimit(
   request: NextRequest,
   config: ApiRateLimitConfig,
-  overrideIdentifier?: string
+  overrideIdentifier?: string,
+  parsedLoginBody?: unknown
 ): Promise<NextResponse | null> {
   try {
     const identifier =
       overrideIdentifier != null
         ? `user:${overrideIdentifier}`
-        : config.getIdentifier(request);
+        : config === defaultRateLimits.auth && parsedLoginBody !== undefined
+          ? loginRateLimitIdentifier(parsedLoginBody) : await config.getIdentifier(request);
+    if (config === defaultRateLimits.auth) {
+      const coarse = await checkRateLimit({ limit: 100, window: 60, identifier: 'public:login-admission' });
+      if (!coarse.allowed) return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429, headers: { 'Retry-After': String(coarse.reset) } });
+    }
     const result = await checkRateLimit({
       limit: config.limit,
       window: config.window,
@@ -120,7 +117,9 @@ export async function withRateLimit(
     return null;
   } catch (error) {
     logger.error("Rate limit check failed:", error);
-    // Graceful degradation: allow request on error
+    if (process.env.NODE_ENV === 'production') return NextResponse.json(
+      { error: 'Request protection temporarily unavailable' },
+      { status: 503, headers: { 'Retry-After': '30', 'Cache-Control': 'no-store' } });
     return null;
   }
 }

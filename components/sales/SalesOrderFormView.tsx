@@ -122,12 +122,15 @@ export default function SalesOrderFormView() {
   const calculatedSubtotal = Math.round(items.reduce((sum, i) => sum + i.lineTotal, 0) * 100) / 100;
   const calculatedTotal = Math.round((calculatedSubtotal - orderDiscount + orderTax) * 100) / 100;
 
+  const commandKey = React.useRef<string | null>(null);
+
   // Create Mutation
   const createMutation = useMutation({
     mutationFn: async () => {
+      commandKey.current ??= crypto.randomUUID();
       const res = await fetch("/api/sales-orders", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Idempotency-Key": commandKey.current },
         body: JSON.stringify({
           customerId,
           warehouseId,

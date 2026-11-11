@@ -23,6 +23,25 @@ export default function SalesOrderDetailView({ salesOrderId }: { salesOrderId: s
   const [cancelReason, setCancelReason] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
 
+  const [invoiceDueDate, setInvoiceDueDate] = useState("");
+  const invoiceCommandKey = React.useRef<string | null>(null);
+  const [issuedInvoiceId, setIssuedInvoiceId] = useState<string | null>(null);
+  const invoiceMutation = useMutation({
+    mutationFn: async () => {
+      if (!invoiceDueDate) throw new Error("حدد تاريخ استحقاق الفاتورة صراحةً");
+      invoiceCommandKey.current ??= crypto.randomUUID();
+      const response = await fetch(`/api/sales-orders/${salesOrderId}/invoice`, {
+        method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": invoiceCommandKey.current },
+        body: JSON.stringify({ dueDate: invoiceDueDate }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Failed to issue invoice");
+      return result;
+    },
+    onSuccess: result => setIssuedInvoiceId(result.invoice.id),
+    onError: (error: Error) => setActionError(error.message),
+  });
+
   // Fetch Sales Order Details
   const { data: order, isLoading, error } = useQuery({
     queryKey: ["sales-order-detail", salesOrderId],
@@ -30,6 +49,16 @@ export default function SalesOrderDetailView({ salesOrderId }: { salesOrderId: s
       const res = await fetch(`/api/sales-orders/${salesOrderId}`);
       if (!res.ok) throw new Error("Failed to fetch sales order");
       return res.json();
+    },
+  });
+
+  const { data: customerBalance } = useQuery({
+    queryKey: ["erp-customer-balance", order?.customerId],
+    enabled: !!order?.customerId && hasPermission(user, BuildStockPermissions.SALES_ORDER_APPROVE),
+    queryFn: async () => {
+      const response = await fetch(`/api/customers/${order.customerId}/balance`);
+      if (!response.ok) throw new Error("تعذر تحميل رصيد العميل");
+      return response.json();
     },
   });
 
@@ -129,12 +158,12 @@ export default function SalesOrderDetailView({ salesOrderId }: { salesOrderId: s
   if (isLoading) return <div className="p-8 text-center text-xs text-muted-foreground">Loading sales order details...</div>;
   if (error || !order) return <div className="p-8 text-center text-xs text-destructive">Failed to load sales order details.</div>;
 
-  const canSubmit = hasPermission(userRole, BuildStockPermissions.SALES_ORDER_SUBMIT) && order.status === "DRAFT";
-  const canApprove = hasPermission(userRole, BuildStockPermissions.SALES_ORDER_APPROVE) && order.status === "PENDING_APPROVAL";
-  const canReserve = hasPermission(userRole, BuildStockPermissions.RESERVATION_CREATE) && order.status === "APPROVED" && !reservationData;
-  const canProcess = hasPermission(userRole, BuildStockPermissions.SALES_ORDER_PROCESS) && order.status === "APPROVED";
-  const canComplete = hasPermission(userRole, BuildStockPermissions.SALES_ORDER_COMPLETE) && order.status === "PROCESSING";
-  const canCancel = hasPermission(userRole, BuildStockPermissions.SALES_ORDER_CANCEL) && ["DRAFT", "PENDING_APPROVAL", "APPROVED"].includes(order.status);
+  const canSubmit = hasPermission(user, BuildStockPermissions.SALES_ORDER_SUBMIT) && order.status === "DRAFT";
+  const canApprove = hasPermission(user, BuildStockPermissions.SALES_ORDER_APPROVE) && order.status === "PENDING_APPROVAL";
+  const canReserve = hasPermission(user, BuildStockPermissions.RESERVATION_CREATE) && order.status === "APPROVED" && !reservationData;
+  const canProcess = hasPermission(user, BuildStockPermissions.SALES_ORDER_PROCESS) && order.status === "APPROVED";
+  const canComplete = hasPermission(user, BuildStockPermissions.SALES_ORDER_COMPLETE) && order.status === "PROCESSING";
+  const canCancel = hasPermission(user, BuildStockPermissions.SALES_ORDER_CANCEL) && ["DRAFT", "PENDING_APPROVAL", "APPROVED"].includes(order.status);
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -157,6 +186,17 @@ export default function SalesOrderDetailView({ salesOrderId }: { salesOrderId: s
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 p-6">
+      {order.status === "COMPLETED" && hasPermission(user, BuildStockPermissions.SALES_ORDER_APPROVE) && (
+        <Card><CardHeader><CardTitle>فاتورة أمر البيع المعتمد</CardTitle></CardHeader><CardContent className="space-y-3">
+          <p>فاتورة واحدة بكامل الإجمالي المعتمد، بعد اكتمال الصرف الفعلي. لا توزيع جديد للخصومات أو الضريبة.</p>
+          <Label htmlFor="invoice-due-date">تاريخ الاستحقاق</Label>
+          <Input id="invoice-due-date" type="date" value={invoiceDueDate} onChange={e => setInvoiceDueDate(e.target.value)} />
+          <Button disabled={invoiceMutation.isPending || !invoiceDueDate} onClick={() => invoiceMutation.mutate()}>إصدار / استرجاع الفاتورة</Button>
+          {issuedInvoiceId && <Link href={`/invoices/${issuedInvoiceId}`}>عرض الفاتورة والدفع</Link>}
+          {customerBalance && <p>رصيد العميل المستحق ضمن المستودعات المصرّح بها: {customerBalance.amountDue.toFixed(2)}</p>}
+        </CardContent></Card>
+      )}
+
       {/* HEADER */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">

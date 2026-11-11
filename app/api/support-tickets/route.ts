@@ -165,10 +165,10 @@ export async function POST(request: NextRequest) {
     const parsed = createSupportTicketSchema.safeParse(body);
     if (!parsed.success) {
       logger.warn("Invalid support ticket creation data", {
-        errors: parsed.error.errors,
+        errors: parsed.error.issues,
       });
       return NextResponse.json(
-        { error: "Invalid request body", details: parsed.error.errors },
+        { error: "Invalid request body", details: parsed.error.issues },
         { status: 400 },
       );
     }

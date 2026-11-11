@@ -36,7 +36,12 @@ export const loginSchema = z.object({
 });
 
 /** API body alias for POST /api/auth/login */
-export const loginBodySchema = loginSchema;
+export const loginBodySchema = z.object({
+  email: z.string().trim().min(3).max(254).refine(value => z.string().email().safeParse(value).success || /^[a-zA-Z0-9][a-zA-Z0-9._-]{2,49}$/.test(value), 'Invalid email or username'),
+  // Preserve historical registration's 100-character login compatibility.
+  // New employee credentials enforce bcrypt's UTF-8 byte limit at creation.
+  password: z.string().min(1).max(100),
+});
 
 /**
  * User login form data type

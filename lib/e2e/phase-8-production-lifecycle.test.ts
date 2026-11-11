@@ -28,6 +28,10 @@ let dbCounts: any[] = [];
 
 vi.mock("@/prisma/client", () => {
   const mockTx = {
+    // Explicit fixture tables for the authoritative availability/unit contract.
+    unit: { findUnique: vi.fn(async ({ where }: any) => [{ id: "unit-sqm", active: true, type: "area" }].find(u => u.id === where.id) || null) },
+    projectMaterialIssueItem: { findMany: vi.fn(async () => []) },
+
     user: { findUnique: vi.fn(async () => mockUser) },
     warehouse: {
       findUnique: vi.fn(async () => mockWarehouse),
@@ -53,7 +57,7 @@ vi.mock("@/prisma/client", () => {
         let sa = dbStockAllocations.find((a) => a.productId === where.productId_warehouseId.productId);
         if (sa) Object.assign(sa, update);
         else {
-          sa = { id: "sa-1", ...create };
+          sa = { id: "sa-1", reservedQuantity: 0, ...create };
           dbStockAllocations.push(sa);
         }
         return sa;
@@ -65,13 +69,15 @@ vi.mock("@/prisma/client", () => {
       }),
     },
     stockLocationAllocation: {
+      count: vi.fn(async ({ where }: any) => dbStockLocationAllocations.filter(a =>
+        (!where.productId || a.productId === where.productId) && (!where.warehouseId || a.warehouseId === where.warehouseId)).length),
       findMany: vi.fn(async () => dbStockLocationAllocations.map((sla) => ({ ...sla, product: mockProductTile, bin: mockBin }))),
       findUnique: vi.fn(async ({ where }: any) => dbStockLocationAllocations.find((a) => a.productId === where.productId_binId?.productId) || null),
       upsert: vi.fn(async ({ where, create, update }: any) => {
         let sla = dbStockLocationAllocations.find((a) => a.productId === where.productId_binId.productId);
         if (sla) Object.assign(sla, update);
         else {
-          sla = { id: "sla-1", ...create };
+          sla = { id: "sla-1", reservedQuantity: 0, ...create };
           dbStockLocationAllocations.push(sla);
         }
         return sla;
@@ -158,10 +164,10 @@ vi.mock("@/prisma/client", () => {
 import { prisma } from "@/prisma/client";
 import { lookupProductByBarcode } from "@/lib/inventory/barcodeService";
 import { createOrUpdateBatchOnReceiptInTx, deductBatchQuantityInTx, reserveBatchQuantityInTx, releaseBatchReservationInTx } from "@/lib/inventory/batchService";
-import { executeStockMutation, StockMovementTypes } from "@/lib/inventory/stockService";
+import { executeStockMutation, executeStockMutationInTx, BATCH_MANAGED_IN_TX, StockMovementTypes } from "@/lib/inventory/stockService";
 import { getInventoryHealthReport } from "@/lib/inventory/healthService";
 
-describe("Phase 8 — Production WMS End-to-End Lifecycle Suite", () => {
+describe("Phase 8 â€” Production WMS End-to-End Lifecycle Suite", () => {
   beforeEach(() => {
     dbStockAllocations = [];
     dbStockLocationAllocations = [];
@@ -181,7 +187,16 @@ describe("Phase 8 — Production WMS End-to-End Lifecycle Suite", () => {
     expect(barcodeResult?.exactMatchField).toBe("barcode");
 
     // 2. GOODS RECEIPT POST (Physical stock +500, Batch created)
-    await executeStockMutation({
+    const batch = await prisma.$transaction(async (tx: any) => {
+    const received = await createOrUpdateBatchOnReceiptInTx(tx, {
+      productId: mockProductTile.id,
+      warehouseId: mockWarehouse.id,
+      batchNumber: "BAT-SP-2026-01",
+      quantity: 500,
+      expiryDate: new Date("2028-01-01"),
+    });
+    await executeStockMutationInTx(tx, {
+      batchId: received.id, batchAccounting: BATCH_MANAGED_IN_TX,
       productId: mockProductTile.id,
       warehouseId: mockWarehouse.id,
       binId: mockBin.id,
@@ -189,13 +204,7 @@ describe("Phase 8 — Production WMS End-to-End Lifecycle Suite", () => {
       movementType: StockMovementTypes.PURCHASE,
       performedBy: mockUser.id,
     });
-
-    const batch = await createOrUpdateBatchOnReceiptInTx(prisma as any, {
-      productId: mockProductTile.id,
-      warehouseId: mockWarehouse.id,
-      batchNumber: "BAT-SP-2026-01",
-      quantity: 500,
-      expiryDate: new Date("2028-01-01"),
+      return received;
     });
 
     expect(dbStockAllocations[0].quantity).toBe(500);
@@ -207,7 +216,10 @@ describe("Phase 8 — Production WMS End-to-End Lifecycle Suite", () => {
     expect(batch.reservedQuantity).toBe(100);
 
     // 4. DISPATCH DEDUCTION (Deduct 100 on dispatch POST)
-    await executeStockMutation({
+    await prisma.$transaction(async (tx: any) => {
+      await releaseBatchReservationInTx(tx, batch.id, 100);
+    await executeStockMutationInTx(tx, {
+      batchId: batch.id,
       productId: mockProductTile.id,
       warehouseId: mockWarehouse.id,
       binId: mockBin.id,
@@ -215,8 +227,7 @@ describe("Phase 8 — Production WMS End-to-End Lifecycle Suite", () => {
       movementType: StockMovementTypes.SALE,
       performedBy: mockUser.id,
     });
-    await releaseBatchReservationInTx(prisma as any, batch.id, 100);
-    await deductBatchQuantityInTx(prisma as any, batch.id, 100);
+    });
 
     expect(dbStockAllocations[0].quantity).toBe(400);
     expect(batch.quantity).toBe(400);

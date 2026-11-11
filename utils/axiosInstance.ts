@@ -2,10 +2,9 @@ import axios from "axios";
 import Cookies from "js-cookie";
 
 const axiosInstance = axios.create({
-  baseURL:
-    process.env.NODE_ENV === "production"
-      ? "https://stockly-inventory.vercel.app/api" // Production URL
-      : "http://localhost:3000/api", // Localhost for development
+  // This Next.js client authenticates with its own server. Never send employee
+  // credentials or bearer tokens to an unrelated legacy deployment.
+  baseURL: "/api",
   headers: {
     "Content-Type": "application/json",
   },

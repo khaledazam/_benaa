@@ -1,4 +1,5 @@
 "use client";
+import type { input } from "zod";
 
 import { useState, useRef, useMemo } from "react";
 import { Button } from "@/components/ui/button";
@@ -86,13 +87,13 @@ export default function AddProductDialog({
   children,
   onOpenChange,
 }: AddProductDialogProps) {
-  const methods = useForm<ProductFormData>({
+  const methods = useForm<input<typeof productSchema>, unknown, ProductFormData>({
     resolver: zodResolver(productSchema),
     defaultValues: {
       productName: "",
       sku: "",
-      quantity: "" as unknown as number,
-      price: "" as unknown as number,
+      quantity: "",
+      price: "",
       imageUrl: "",
       imageFileId: "",
       expirationDate: "",
@@ -210,7 +211,7 @@ export default function AddProductDialog({
       supplierId: selectedSupplier,
     });
     if (!submitValidation.success) {
-      for (const issue of submitValidation.error.errors) {
+      for (const issue of submitValidation.error.issues) {
         const field = issue.path[0];
         if (field === "categoryId") {
           setCategoryError(issue.message);
@@ -339,7 +340,7 @@ export default function AddProductDialog({
   const reconcilePreview = useCatalogQuantityReconcilePreview({
     selectedProduct,
     allocations: allocationsForPreview,
-    quantityRaw: formValues.quantity,
+    quantityRaw: typeof formValues.quantity === "string" || typeof formValues.quantity === "number" ? formValues.quantity : undefined,
   });
   const isFormValid = productFormSubmitSchema.safeParse({
     ...formValues,

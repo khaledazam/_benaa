@@ -4,7 +4,7 @@
 
 import { z } from "zod";
 import type { ProductStatus } from "@/types";
-import { calculateStockStatus } from "@/lib/inventory/stockService";
+import { calculateStockStatus } from "@/lib/inventory/stock-status";
 
 const productSkuSchema = z
   .string()
@@ -108,12 +108,12 @@ export const createProductBodySchema = z.object({
   quantity: z.number().nonnegative("Quantity cannot be negative"),
   minimumStock: z.number().nonnegative().optional(),
   maximumStock: z.number().nonnegative().optional(),
-  unitId: z.string().optional(),
   purchaseUnitId: z.string().optional(),
   saleUnitId: z.string().optional(),
   status: productStatusSchema.optional(),
   categoryId: z.string().min(1, "Category is required"),
   supplierId: z.string().min(1, "Supplier is required"),
+  unitId: z.string().regex(/^[a-f0-9]{24}$/i, "Registered base unit is required").optional().nullable(),
   imageUrl: optionalImageUrlSchema.optional(),
   imageFileId: z.string().optional(),
   expirationDate: optionalExpirationDateSchema.optional(),

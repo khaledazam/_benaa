@@ -41,7 +41,9 @@ export async function GET(
     if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (session.role !== "admin") {
+    const role = session.role?.toUpperCase() || "";
+    const isAdmin = role === "ADMIN" || role === "SUPER_ADMIN" || role === "SUPERADMIN";
+    if (!isAdmin) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -82,7 +84,9 @@ export async function PUT(
     if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (session.role !== "admin") {
+    const role = session.role?.toUpperCase() || "";
+    const isAdmin = role === "ADMIN" || role === "SUPER_ADMIN" || role === "SUPERADMIN";
+    if (!isAdmin) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -96,10 +100,10 @@ export async function PUT(
     const parsed = updateUserAdminSchema.safeParse(body);
     if (!parsed.success) {
       logger.warn("Invalid user update data", {
-        errors: parsed.error.errors,
+        errors: parsed.error.issues,
       });
       return NextResponse.json(
-        { error: "Invalid request body", details: parsed.error.errors },
+        { error: "Invalid request body", details: parsed.error.issues },
         { status: 400 },
       );
     }
@@ -147,7 +151,9 @@ export async function DELETE(
     if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (session.role !== "admin") {
+    const role = session.role?.toUpperCase() || "";
+    const isAdmin = role === "ADMIN" || role === "SUPER_ADMIN" || role === "SUPERADMIN";
+    if (!isAdmin) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

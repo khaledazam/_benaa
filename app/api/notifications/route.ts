@@ -1,3 +1,5 @@
+import { getSessionFromRequest } from "@/utils/auth";
+import { hasPermission } from "@/lib/auth/permissions";
 /**
  * Email Notifications API Route
  * Handles email notification requests via Brevo API
@@ -32,6 +34,9 @@ import { getErrorMessage } from "@/lib/api/errors";
  */
 export async function POST(request: NextRequest) {
   try {
+    const session = await getSessionFromRequest(request);
+    if (!session) return errorResponse("Unauthorized", 401);
+    if (!hasPermission(session, "SYSTEM_CONFIG")) return errorResponse("Forbidden", 403);
     // Check if Brevo is configured
     if (!isBrevoConfigured()) {
       logger.warn("Brevo email service is not configured");
@@ -45,10 +50,10 @@ export async function POST(request: NextRequest) {
     const validationResult = emailNotificationBodySchema.safeParse(body);
     if (!validationResult.success) {
       logger.warn("Invalid email notification data", {
-        errors: validationResult.error.errors,
+        errors: validationResult.error.issues,
       });
       return errorResponse("Invalid request body", 400, {
-        details: validationResult.error.errors,
+        details: validationResult.error.issues,
       });
     }
 

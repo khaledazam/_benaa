@@ -24,6 +24,11 @@ let dbProducts: any[] = [];
 
 vi.mock("@/prisma/client", () => {
   const mockTx = {
+    // Explicit fixture tables for the authoritative availability/unit contract.
+    unit: { findUnique: vi.fn(async ({ where }: any) => [{ id: "unit-bag", active: true, type: "count" }].find(u => u.id === where.id) || null) },
+    projectMaterialIssueItem: { findMany: vi.fn(async () => []) },
+    stockReservationItem: { findMany: vi.fn(async () => []) },
+
     user: { findUnique: vi.fn(async () => mockUser) },
     warehouse: { findUnique: vi.fn(async () => mockWarehouse), findMany: vi.fn(async () => [mockWarehouse]) },
     warehouseBin: { findUnique: vi.fn(async () => mockBin) },
@@ -45,7 +50,7 @@ vi.mock("@/prisma/client", () => {
         let sa = dbStockAllocations.find((a) => a.productId === where.productId_warehouseId.productId);
         if (sa) Object.assign(sa, update);
         else {
-          sa = { id: "sa-1", ...create };
+          sa = { id: "sa-1", reservedQuantity: 0, ...create };
           dbStockAllocations.push(sa);
         }
         return sa;
@@ -57,13 +62,15 @@ vi.mock("@/prisma/client", () => {
       }),
     },
     stockLocationAllocation: {
+      count: vi.fn(async ({ where }: any) => dbStockLocationAllocations.filter(a =>
+        (!where.productId || a.productId === where.productId) && (!where.warehouseId || a.warehouseId === where.warehouseId)).length),
       findMany: vi.fn(async () => dbStockLocationAllocations.map((sla) => ({ ...sla, product: mockProductCement, bin: mockBin }))),
       findUnique: vi.fn(async ({ where }: any) => dbStockLocationAllocations.find((a) => a.productId === where.productId_binId?.productId) || null),
       upsert: vi.fn(async ({ where, create, update }: any) => {
         let sla = dbStockLocationAllocations.find((a) => a.productId === where.productId_binId.productId);
         if (sla) Object.assign(sla, update);
         else {
-          sla = { id: "sla-1", ...create };
+          sla = { id: "sla-1", reservedQuantity: 0, ...create };
           dbStockLocationAllocations.push(sla);
         }
         return sla;
@@ -130,10 +137,10 @@ vi.mock("@/prisma/client", () => {
 import { prisma } from "@/prisma/client";
 import { lookupProductByBarcode } from "@/lib/inventory/barcodeService";
 import { createOrUpdateBatchOnReceiptInTx, deductBatchQuantityInTx, getBatchSuggestions } from "@/lib/inventory/batchService";
-import { executeStockMutation, StockMovementTypes } from "@/lib/inventory/stockService";
+import { executeStockMutation, executeStockMutationInTx, BATCH_MANAGED_IN_TX, StockMovementTypes } from "@/lib/inventory/stockService";
 import { reconcileProductWarehouse } from "@/lib/inventory/reconciliationService";
 
-describe("Phase 7 — Full End-to-End Lifecycle Scenario 36", () => {
+describe("Phase 7 â€” Full End-to-End Lifecycle Scenario 36", () => {
   beforeEach(() => {
     dbStockAllocations = [];
     dbStockLocationAllocations = [];
@@ -148,7 +155,16 @@ describe("Phase 7 — Full End-to-End Lifecycle Scenario 36", () => {
     expect(barcodeLookup?.product.id).toBe(mockProductCement.id);
 
     // 2. GOODS RECEIPT (POST) -> Physical stock +200 & Batch Creation
-    await executeStockMutation({
+    const batch = await prisma.$transaction(async (tx: any) => {
+    const received = await createOrUpdateBatchOnReceiptInTx(tx, {
+      productId: mockProductCement.id,
+      warehouseId: mockWarehouse.id,
+      batchNumber: "BAT-GRN-1001",
+      quantity: 200,
+      expiryDate: new Date("2027-01-01"),
+    });
+    await executeStockMutationInTx(tx, {
+      batchId: received.id, batchAccounting: BATCH_MANAGED_IN_TX,
       productId: mockProductCement.id,
       warehouseId: mockWarehouse.id,
       binId: mockBin.id,
@@ -156,13 +172,7 @@ describe("Phase 7 — Full End-to-End Lifecycle Scenario 36", () => {
       movementType: StockMovementTypes.PURCHASE,
       performedBy: mockUser.id,
     });
-
-    const batch = await createOrUpdateBatchOnReceiptInTx(prisma as any, {
-      productId: mockProductCement.id,
-      warehouseId: mockWarehouse.id,
-      batchNumber: "BAT-GRN-1001",
-      quantity: 200,
-      expiryDate: new Date("2027-01-01"),
+      return received;
     });
 
     expect(dbStockAllocations[0].quantity).toBe(200);
@@ -181,7 +191,9 @@ describe("Phase 7 — Full End-to-End Lifecycle Scenario 36", () => {
     expect(suggestions?.[0]?.batchNumber).toBe("BAT-GRN-1001");
 
     // 4. DISPATCH (POST) -> Deducts 50 physical stock & 50 batch quantity
-    await executeStockMutation({
+    await prisma.$transaction(async (tx: any) => {
+    await executeStockMutationInTx(tx, {
+      batchId: batch.id,
       productId: mockProductCement.id,
       warehouseId: mockWarehouse.id,
       binId: mockBin.id,
@@ -189,7 +201,7 @@ describe("Phase 7 — Full End-to-End Lifecycle Scenario 36", () => {
       movementType: StockMovementTypes.SALE,
       performedBy: mockUser.id,
     });
-    await deductBatchQuantityInTx(prisma as any, batch.id, 50);
+    });
 
     expect(dbStockAllocations[0].quantity).toBe(150);
     expect(batch.quantity).toBe(150);

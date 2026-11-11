@@ -98,6 +98,9 @@ model Invoice {
 model Order {
   id                    String      @id @default(auto()) @map("_id") @db.ObjectId
   orderNumber           String      @unique
+  // ERP contact identity is separate from legacy customer login identity.
+  customerId            String?     @db.ObjectId
+  erpSalesOrderId        String?     @db.ObjectId
   userId                String      @db.ObjectId
   clientId              String?     @db.ObjectId
   status                String      @default("pending")
@@ -125,6 +128,8 @@ model Order {
   updatedBy             String?     @db.ObjectId
   items                 OrderItem[]
   invoice               Invoice?
+  @@index([customerId])
+  @@index([erpSalesOrderId])
 }
 
 model OrderItem {
@@ -349,7 +354,7 @@ model StockLocationAllocation {
 
 model Product {
   id                  String                    @id @default(auto()) @map("_id") @db.ObjectId
-  categoryId          String                    @db.ObjectId
+  categoryId          String?                   @db.ObjectId
   subcategoryId       String?                   @db.ObjectId
   createdAt           DateTime                  @default(now()) @db.Date
   updatedAt           DateTime?                 @db.Date
@@ -433,18 +438,44 @@ model StockTransfer {
   toWarehouseId   String    @db.ObjectId
   fromBinId       String?   @db.ObjectId
   toBinId         String?   @db.ObjectId
+  batchId         String?   @db.ObjectId
   quantity        Float
   unitId          String?   @db.ObjectId
-  status          String    @default("pending")
+  status          String    @default("REQUESTED") // REQUESTED, APPROVED, DISPATCHED, IN_TRANSIT, RECEIVED, COMPLETED, CANCELLED
+  receivedQuantity Float?
+    inTransitQuantity Float @default(0)
   notes           String?
   userId          String    @db.ObjectId
-  createdAt       DateTime  @default(now()) @db.Date
+  requestedBy     String?
+  approvedBy      String?
+  dispatchedBy    String?
+  receivedBy      String?
+  cancelledBy     String?
+  requestedAt     DateTime? @default(now()) @db.Date
+  approvedAt      DateTime? @db.Date
+  dispatchedAt    DateTime? @db.Date
+  receivedAt      DateTime? @db.Date
   completedAt     DateTime? @db.Date
+  cancellationReason String?
+  discrepancyNotes   String?
+  auditHistory       Json?
+  createdAt       DateTime  @default(now()) @db.Date
 
   @@index([productId])
   @@index([fromWarehouseId])
   @@index([toWarehouseId])
   @@index([status])
+}
+
+// Receipt/dispatch retries are committed atomically with the stock transaction.
+// Records are append-only; no existing movements or customer records are rewritten.
+model InventoryOperation {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  operationKey String @unique
+  actorId String @db.ObjectId
+  requestHash String
+  response Json
+  createdAt DateTime @default(now()) @db.Date
 }
 
 model StockMovement {
@@ -535,14 +566,47 @@ model User {
   password         String
   updatedAt        DateTime?      @db.Date
   username         String?        @unique
+  sessionVersion   Int?
   googleId         String?
   image            String?
   phone            String?
   status           Boolean        @default(true)
-  role             String?
-  warehouseIds     String[]       @db.ObjectId
-  emailPreferences Json?
-  notifications    Notification[]
+  role                  String?
+  primaryWarehouseId    String?        @db.ObjectId
+  warehouseIds          String[]       @db.ObjectId
+  subscriptionStartDate DateTime?      @db.Date
+  subscriptionEndDate   DateTime?      @db.Date
+  permissions           String[]
+  permissionsRestricted Boolean?
+  emailPreferences      Json?
+  notifications         Notification[]
+}
+
+// Per-token logout revocation. Historical inventory and financial records unchanged.
+model RevokedSession {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  tokenDigest String   @unique
+  userId      String   @db.ObjectId
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
+// Server-only rotating mobile refresh grant. No bearer/refresh plaintext stored.
+model MobileSession {
+  id             String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId         String    @db.ObjectId
+  sessionVersion Int
+  refreshDigest  String
+  usedDigests    String[]
+  expiresAt      DateTime
+  revokedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model ImportHistory {
@@ -1139,3 +1203,86 @@ model InventoryBatch {
 
 
 
+
+// Internal single-company construction material custody. No pricing or revenue.
+model Project {
+  id                String @id @default(auto()) @map("_id") @db.ObjectId
+  code              String @unique
+  name              String
+  location          String?
+  status            String @default("ACTIVE")
+  assignedManagerId String? @db.ObjectId
+  warehouseIds      String[] @db.ObjectId
+  createdBy         String @db.ObjectId
+  createdAt         DateTime @default(now()) @db.Date
+  updatedAt         DateTime? @db.Date
+  issues            ProjectMaterialIssue[]
+}
+
+model ProjectMaterialIssue {
+  id             String @id @default(auto()) @map("_id") @db.ObjectId
+  issueNumber    String @unique
+  projectId      String @db.ObjectId
+  warehouseId    String @db.ObjectId
+  status         String @default("DRAFT")
+  recipientName  String?
+  notes          String?
+  createdBy      String @db.ObjectId
+  requestedBy    String? @db.ObjectId
+  approvedBy     String? @db.ObjectId
+  approvedAt     DateTime? @db.Date
+  completedBy    String? @db.ObjectId
+  completedAt    DateTime? @db.Date
+  cancelledBy    String? @db.ObjectId
+  cancellationReason String?
+  createdAt      DateTime @default(now()) @db.Date
+  updatedAt      DateTime? @db.Date
+  project        Project @relation(fields: [projectId], references: [id])
+  items          ProjectMaterialIssueItem[]
+  returns        ProjectMaterialIssueReturn[]
+  @@index([projectId, status])
+  @@index([warehouseId, status])
+}
+
+model ProjectMaterialIssueItem {
+  id                 String @id @default(auto()) @map("_id") @db.ObjectId
+  projectIssueId     String @db.ObjectId
+  productId          String @db.ObjectId
+  warehouseId        String @db.ObjectId
+  productName        String
+  productSku         String?
+  unitId             String? @db.ObjectId
+  binId              String? @db.ObjectId
+  batchId            String? @db.ObjectId
+  quantity           Float
+  reservedQuantity   Float @default(0)
+  remainingQuantity  Float @default(0)
+  dispatchedQuantity Float @default(0)
+  returnedQuantity   Float @default(0)
+  releasedQuantity   Float @default(0)
+  createdAt          DateTime @default(now()) @db.Date
+  issue              ProjectMaterialIssue @relation(fields: [projectIssueId], references: [id])
+  returns            ProjectMaterialIssueReturn[]
+  @@index([productId, warehouseId])
+  @@index([projectIssueId])
+}
+
+model ProjectMaterialIssueReturn {
+  id             String @id @default(auto()) @map("_id") @db.ObjectId
+  projectIssueId String @db.ObjectId
+  issueItemId    String @db.ObjectId
+  projectId      String @db.ObjectId
+  productId      String @db.ObjectId
+  warehouseId    String @db.ObjectId
+  binId          String? @db.ObjectId
+  batchId        String? @db.ObjectId
+  quantity       Float
+  reason         String?
+  receivedBy     String @db.ObjectId
+  stockMovementId String @db.ObjectId
+  createdAt      DateTime @default(now()) @db.Date
+  issue          ProjectMaterialIssue @relation(fields: [projectIssueId], references: [id])
+  item           ProjectMaterialIssueItem @relation(fields: [issueItemId], references: [id])
+  @@index([projectIssueId])
+  @@index([issueItemId])
+}

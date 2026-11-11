@@ -1,3 +1,4 @@
+import { withWarehouseScope } from "@/lib/auth/warehouse-route-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/requireRole";
 import { prisma } from "@/prisma/client";
@@ -7,7 +8,7 @@ import { BuildStockPermissions } from "@/lib/auth/permissions";
 
 import { createCorsHeaders, handleCorsPreflight } from "@/lib/api/cors";
 
-export async function GET(request: NextRequest) {
+async function scopedGET(request: NextRequest) {
   const corsHeaders = createCorsHeaders(request);
   const auth = await requireAuth(request, BuildStockPermissions.PURCHASE_ORDER_VIEW);
   if (auth instanceof NextResponse) return auth;
@@ -37,7 +38,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function POST(request: NextRequest) {
+async function scopedPOST(request: NextRequest) {
   const corsHeaders = createCorsHeaders(request);
   const auth = await requireAuth(request, BuildStockPermissions.PURCHASE_ORDER_CREATE);
   if (auth instanceof NextResponse) return auth;
@@ -60,3 +61,6 @@ export async function POST(request: NextRequest) {
 export async function OPTIONS(request: NextRequest) {
   return handleCorsPreflight(request);
 }
+
+export const GET = withWarehouseScope(scopedGET);
+export const POST = withWarehouseScope(scopedPOST);

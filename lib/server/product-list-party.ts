@@ -18,7 +18,7 @@ export type ProductListPartyMaps = {
 
 type ProductPartyIds = {
   userId: string;
-  categoryId: string;
+  categoryId: string | null;
   supplierId: string;
 };
 
@@ -26,7 +26,7 @@ type ProductPartyIds = {
 export async function loadProductListPartyMaps(
   products: ProductPartyIds[],
 ): Promise<ProductListPartyMaps> {
-  const categoryIds = [...new Set(products.map((p) => p.categoryId))];
+  const categoryIds = [...new Set(products.map((p) => p.categoryId).filter((id): id is string => id !== null))];
   const supplierIds = [...new Set(products.map((p) => p.supplierId))];
   const ownerIds = [...new Set(products.map((p) => p.userId))];
 
@@ -100,7 +100,7 @@ export function productListPartyFields(
     ? maps.userMap.get(supplier.userId)
     : undefined;
   return {
-    category: maps.categoryMap.get(product.categoryId) || "Unknown",
+    category: (product.categoryId ? maps.categoryMap.get(product.categoryId) : undefined) || "Unknown",
     supplier: supplier?.name || "Unknown",
     productOwnerName: owner?.name ?? product.userId,
     productOwnerImage: owner?.image ?? null,

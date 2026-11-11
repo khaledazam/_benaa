@@ -16,6 +16,15 @@ export {
   type LlmProvider,
 } from "./create-chat-completion";
 
+export {
+  createNaraRouterChatCompletion,
+  isNaraRouterConfigured,
+  DEFAULT_NARA_BASE_URL,
+  DEFAULT_NARA_MODEL,
+  getNaraBaseUrl,
+  getNaraModel,
+} from "./nararouter";
+
 export { createOpenRouterChatCompletion } from "./openrouter";
 export {
   createGroqChatCompletion,

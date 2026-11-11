@@ -131,12 +131,12 @@ export async function PUT(
     const validationResult = updateInAppNotificationBodySchema.safeParse(body);
     if (!validationResult.success) {
       logger.warn("Invalid in-app notification update data", {
-        errors: validationResult.error.errors,
+        errors: validationResult.error.issues,
       });
       return NextResponse.json(
         {
           error: "Invalid request body",
-          details: validationResult.error.errors,
+          details: validationResult.error.issues,
         },
         { status: 400 },
       );

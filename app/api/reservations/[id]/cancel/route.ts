@@ -1,16 +1,18 @@
+import { withWarehouseScope } from "@/lib/auth/warehouse-route-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth-server";
 import { mapSessionToAppUser } from "@/lib/auth/map-session-user";
 import { hasPermission, BuildStockPermissions } from "@/lib/auth/permissions";
 import { cancelReservation } from "@/lib/reservations/reservationService";
 
-export async function POST(req: NextRequest, context: { params: Promise<{ id: string }> }) {
+async function scopedPOST(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const session = await getSession();
+    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const user = session ? mapSessionToAppUser(session) : null;
     const role = user?.role || "VIEWER";
 
-    if (!hasPermission(role, BuildStockPermissions.RESERVATION_CANCEL)) {
+    if (!hasPermission(user, BuildStockPermissions.RESERVATION_CANCEL)) {
       return NextResponse.json({ error: "Forbidden: Insufficient permissions to cancel stock reservation" }, { status: 403 });
     }
 
@@ -29,3 +31,5 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
     return NextResponse.json({ error: error.message || "Failed to cancel stock reservation" }, { status });
   }
 }
+
+export const POST = withWarehouseScope(scopedPOST);

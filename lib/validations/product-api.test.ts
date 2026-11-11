@@ -28,7 +28,7 @@ describe("createProductBodySchema", () => {
     });
     expect(result.success).toBe(false);
     if (!result.success) {
-      expect(result.error.errors.some((e) => e.path.includes("categoryId"))).toBe(
+      expect(result.error.issues.some((e) => e.path.includes("categoryId"))).toBe(
         true,
       );
     }
@@ -41,7 +41,7 @@ describe("createProductBodySchema", () => {
     });
     expect(result.success).toBe(false);
     if (!result.success) {
-      expect(result.error.errors.some((e) => e.path.includes("sku"))).toBe(true);
+      expect(result.error.issues.some((e) => e.path.includes("sku"))).toBe(true);
     }
   });
 });

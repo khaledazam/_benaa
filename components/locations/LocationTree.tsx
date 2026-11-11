@@ -28,8 +28,8 @@ export default function LocationTree({ warehouseId }: { warehouseId: string }) {
   const queryClient = useQueryClient();
 
   const userRole = user?.role || "VIEWER";
-  const canCreate = hasPermission(userRole, BuildStockPermissions.LOCATION_CREATE);
-  const canDeactivate = hasPermission(userRole, BuildStockPermissions.LOCATION_DEACTIVATE);
+  const canCreate = hasPermission(user, BuildStockPermissions.LOCATION_CREATE);
+  const canDeactivate = hasPermission(user, BuildStockPermissions.LOCATION_DEACTIVATE);
 
   const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({});
   const [selectedBin, setSelectedBin] = useState<any>(null);

@@ -17,8 +17,8 @@ export default function PurchaseOrdersView() {
   const queryClient = useQueryClient();
   const userRole = user?.role || "VIEWER";
 
-  const canCreate = hasPermission(userRole, BuildStockPermissions.PURCHASE_ORDER_CREATE);
-  const canApprove = hasPermission(userRole, BuildStockPermissions.PURCHASE_ORDER_APPROVE);
+  const canCreate = hasPermission(user, BuildStockPermissions.PURCHASE_ORDER_CREATE);
+  const canApprove = hasPermission(user, BuildStockPermissions.PURCHASE_ORDER_APPROVE);
 
   const [statusTab, setStatusTab] = useState<string>("ALL");
   const [selectedPO, setSelectedPO] = useState<any>(null);

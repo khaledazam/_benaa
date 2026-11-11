@@ -5,6 +5,7 @@
  */
 
 import { getSupplierByUserId } from "@/prisma/supplier";
+import { hasPermission, BuildStockRoles } from '@/lib/auth/permissions';
 import { getCache, setCache, cacheKeys } from "@/lib/cache";
 import { prisma } from "@/prisma/client";
 import { mergeProductListWhere } from "@/lib/products/product-query";
@@ -255,13 +256,16 @@ export async function getProductDetailForPage(
   id: string,
 ): Promise<ProductDetailForPage | null> {
   const userId = session.id;
-  const isAdmin = session.role === "admin";
+  if (!hasPermission(session, 'PRODUCT_VIEW')) return null;
+  const isAdmin = session.role === "admin" || session.role === 'SUPER_ADMIN';
   const isSupplier = session.role === "supplier";
   const isClient = session.role === "client";
 
   const cacheKey = cacheKeys.products.detail(id);
   const cacheReadStartedAt = Date.now();
-  const cachedProduct = await getCache<ProductDetailForPage>(cacheKey);
+  // A global administrator's detail includes financial/customer enrichment.
+  // Other actors must never consume or overwrite that shared cache entry.
+  const cachedProduct = isAdmin ? await getCache<ProductDetailForPage>(cacheKey) : null;
   if (productDetailCacheValid(cachedProduct)) {
     logger.info(`✅ Cache hit for product: ${cacheKey}`);
     return cachedProduct;
@@ -270,31 +274,36 @@ export async function getProductDetailForPage(
   logger.info(`❌ Cache miss for product: ${cacheKey} - fetching from database`);
 
   let product: ProductWithOrders | null;
+  const authorizedInclude = isAdmin || isSupplier || isClient ? productInclude : {
+    ...productInclude, orderItems: { ...productInclude.orderItems, where: { id: { in: [] as string[] } } },
+  };
   if (isAdmin) {
     product = await prisma.product.findFirst({
       where: mergeProductListWhere({ id }),
-      include: productInclude,
+      include: authorizedInclude,
     });
   } else if (isSupplier) {
     const supplier = await getSupplierByUserId(userId);
     if (!supplier) return null;
     product = await prisma.product.findFirst({
       where: mergeProductListWhere({ id, supplierId: supplier.id }),
-      include: productInclude,
+      include: authorizedInclude,
     });
-  } else if (isClient) {
+  } else if (isClient || Object.values(BuildStockRoles).includes(session.role as any)) {
     product = await prisma.product.findFirst({
       where: mergeProductListWhere({ id }),
-      include: productInclude,
+      include: authorizedInclude,
     });
   } else {
     product = await prisma.product.findFirst({
       where: mergeProductListWhere({ id, userId }),
-      include: productInclude,
+      include: authorizedInclude,
     });
   }
 
   if (!product) return null;
+  if (!isAdmin && !isSupplier) product = { ...product, orderItems: isClient ? product.orderItems.filter(item =>
+    item.order && resolveBuyerUserId({ userId: item.order.userId, clientId: item.order.clientId }) === userId) : [] };
 
   const orderUserIds = [
     ...new Set(
@@ -314,10 +323,10 @@ export async function getProductDetailForPage(
 
   const [category, supplier, creatorUser, updaterUser, orderUsers, ownerUser] =
     await Promise.all([
-    prisma.category.findUnique({
+    product.categoryId ? prisma.category.findUnique({
       where: { id: product.categoryId },
       select: { id: true, name: true, description: true, status: true },
-    }),
+    }) : Promise.resolve(null),
     prisma.supplier.findUnique({
       where: { id: product.supplierId },
       select: { id: true, name: true, description: true, status: true, userId: true },
@@ -417,6 +426,6 @@ export async function getProductDetailForPage(
 
   const productForPage = { ...enrichedProduct, productInsights };
 
-  await setCache(cacheKey, productForPage, 300, { fetchedAt: cacheReadStartedAt });
+  if (isAdmin) await setCache(cacheKey, productForPage, 300, { fetchedAt: cacheReadStartedAt });
   return productForPage;
 }

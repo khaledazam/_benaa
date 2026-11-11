@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest } from "@/utils/auth";
+import { hasPermission } from '@/lib/auth/permissions';
 import { logger } from "@/lib/logger";
 import { withRateLimit, defaultRateLimits } from "@/lib/api/rate-limit";
 import { getProductDetailForPage } from "@/lib/server/product-detail-data";
@@ -37,9 +38,10 @@ export async function GET(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders });
     }
 
+    if (!hasPermission(session, 'PRODUCT_VIEW')) return NextResponse.json({ error: 'Forbidden product access' }, { status: 403, headers: corsHeaders });
     const { id } = await params;
     const transformedProduct = await getProductDetailForPage(
-      { id: session.id, role: session.role },
+      session,
       id,
     );
 
@@ -63,89 +65,10 @@ import { createAuditLog } from "@/prisma/audit-log";
  * PATCH /api/products/:id
  * Quick quantity update for field stock adjustment with anti-theft controls
  */
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const corsHeaders = createCorsHeaders(request);
-  try {
-    const session = await getSessionFromRequest(request);
-    if (!session) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders });
-    }
-
-    // Anti-Theft Control: Only Authorized Managers can adjust stock directly
-    const role = session.role?.toUpperCase() || "";
-    const isAuthorized =
-      role === "SUPER_ADMIN" ||
-      role === "SUPERADMIN" ||
-      role === "ADMIN" ||
-      role === "WAREHOUSE_MANAGER" ||
-      role === "INVENTORY_OFFICER";
-
-    if (!isAuthorized) {
-      return NextResponse.json(
-        {
-          error:
-            "محظور: يتطلب تعديل المخزون الميداني صلاحية مدير المستودع لمنع الاختلاس والتلاعب.",
-        },
-        { status: 403, headers: corsHeaders },
-      );
-    }
-
-    const { id } = await params;
-    const body = await request.json();
-    const { quantity, reason } = body;
-
-    if (typeof quantity !== "number" || quantity < 0) {
-      return NextResponse.json(
-        { error: "Invalid quantity provided" },
-        { status: 400, headers: corsHeaders },
-      );
-    }
-
-    // Fetch existing product for audit diff
-    const existing = await prisma.product.findUnique({ where: { id } });
-    if (!existing) {
-      return NextResponse.json(
-        { error: "Product not found" },
-        { status: 404, headers: corsHeaders },
-      );
-    }
-
-    const updated = await prisma.product.update({
-      where: { id },
-      data: { quantity, updatedAt: new Date() },
-    });
-
-    // Immutable Audit Trail Logging
-    await createAuditLog({
-      userId: session.id,
-      action: "update",
-      entityType: "product",
-      entityId: id,
-      details: {
-        type: "field_stock_adjustment",
-        productName: existing.name,
-        sku: existing.sku,
-        oldQuantity: existing.quantity,
-        newQuantity: quantity,
-        difference: quantity - existing.quantity,
-        reason: reason || "Field Inventory Audit",
-        performedByRole: session.role,
-      },
-    }).catch(() => {});
-
-    await invalidateOnProductChange();
-
-    return NextResponse.json(updated, { headers: corsHeaders });
-  } catch (error: any) {
-    logger.error("Error updating product quantity:", error);
-    return NextResponse.json(
-      { error: error.message || "Failed to update product quantity" },
-      { status: 500, headers: corsHeaders },
-    );
-  }
+export async function PATCH(request: NextRequest, _context: { params: Promise<{ id: string }> }) {
+ const session = await getSessionFromRequest(request);
+ if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+ return NextResponse.json({ error: "Direct stock replacement is disabled; post an approved warehouse inventory adjustment" }, { status: 409 });
 }
 
 export async function OPTIONS(request: NextRequest) {

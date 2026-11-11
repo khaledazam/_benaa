@@ -24,7 +24,7 @@ export async function countProductsByCategoryIds(
     _count: { id: true },
   });
   for (const g of groups) {
-    map.set(g.categoryId, g._count.id);
+    if (g.categoryId) map.set(g.categoryId, g._count.id);
   }
   return map;
 }

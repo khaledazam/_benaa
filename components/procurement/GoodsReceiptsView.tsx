@@ -18,8 +18,8 @@ export default function GoodsReceiptsView() {
   const queryClient = useQueryClient();
   const userRole = user?.role || "VIEWER";
 
-  const canCreate = hasPermission(userRole, BuildStockPermissions.GOODS_RECEIPT_CREATE);
-  const canPost = hasPermission(userRole, BuildStockPermissions.GOODS_RECEIPT_POST);
+  const canCreate = hasPermission(user, BuildStockPermissions.GOODS_RECEIPT_CREATE);
+  const canPost = hasPermission(user, BuildStockPermissions.GOODS_RECEIPT_POST);
 
   const [statusTab, setStatusTab] = useState<string>("ALL");
   const [selectedGRN, setSelectedGRN] = useState<any>(null);

@@ -1,3 +1,5 @@
+import { getSessionFromRequest } from "@/utils/auth";
+import { hasPermission } from "@/lib/auth/permissions";
 /**
  * System Metrics API Route
  * Provides system-level metrics including:
@@ -18,6 +20,9 @@ import { logger } from "@/lib/logger";
  */
 export async function GET(request: NextRequest) {
   try {
+    const session = await getSessionFromRequest(request);
+    if (!session) return errorResponse("Unauthorized", 401);
+    if (!hasPermission(session, "SYSTEM_CONFIG")) return errorResponse("Forbidden", 403);
     const metrics = await getSystemMetrics();
     return successResponse(metrics);
   } catch (error) {

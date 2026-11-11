@@ -13,6 +13,8 @@ import { prisma } from "@/prisma/client";
 import { sendInvoiceEmail } from "@/lib/email/notifications";
 import { withRateLimit, defaultRateLimits } from "@/lib/api/rate-limit";
 import { scheduleInvalidateInvoiceCaches } from "@/lib/cache";
+import { hasPermission } from '@/lib/auth/permissions';
+import { timingSafeEqual } from 'node:crypto';
 import type { InvoiceEmailData, BillingAddress } from "@/types";
 
 /**
@@ -30,11 +32,13 @@ export async function POST(request: NextRequest) {
     // Check for optional authorization (admin or internal cron call)
     const session = await getSessionFromRequest(request);
     const authHeader = request.headers.get("authorization");
-    const isInternalCall =
-      authHeader === `Bearer ${process.env.INTERNAL_API_KEY}`;
+    const key = process.env.INTERNAL_API_KEY;
+    const expected = key && key.trim().length >= 32 ? Buffer.from(`Bearer ${key}`) : null;
+    const supplied = Buffer.from(authHeader || '');
+    const isInternalCall = !!expected && supplied.length === expected.length && timingSafeEqual(supplied, expected);
 
     // Either admin or internal call required
-    if (!isInternalCall && (!session || session.role !== "admin")) {
+    if (!isInternalCall && (!session || !hasPermission(session, 'USER_MANAGE'))) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -213,7 +217,7 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     const session = await getSessionFromRequest(request);
-    if (!session || session.role !== "admin") {
+    if (!session || !hasPermission(session, 'USER_MANAGE')) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 

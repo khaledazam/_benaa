@@ -1,0 +1,3017 @@
+{
+  "schemaSha256": "8aef66f1bf0134eaacbb697c8a7f8319e41a59d698c81a490bcca4f468e63d51",
+  "mode": "offline only; no database verification performed",
+  "models": [
+    {
+      "model": "Category",
+      "collection": "Category",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "parentId": 1
+          },
+          "nullableFields": [
+            "parentId"
+          ],
+          "name": "Category_parentId_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "Brand",
+      "collection": "Brand",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": true,
+          "source": "@unique",
+          "primary": false,
+          "key": {
+            "name": 1
+          },
+          "nullableFields": [],
+          "name": "Brand_name_key",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "Unit",
+      "collection": "Unit",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": true,
+          "source": "@unique",
+          "primary": false,
+          "key": {
+            "code": 1
+          },
+          "nullableFields": [],
+          "name": "Unit_code_key",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "UnitConversion",
+      "collection": "UnitConversion",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "fromUnitId": 1
+          },
+          "nullableFields": [],
+          "name": "UnitConversion_fromUnitId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "toUnitId": 1
+          },
+          "nullableFields": [],
+          "name": "UnitConversion_toUnitId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "productId": 1
+          },
+          "nullableFields": [
+            "productId"
+          ],
+          "name": "UnitConversion_productId_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "Invoice",
+      "collection": "Invoice",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": true,
+          "source": "@unique",
+          "primary": false,
+          "key": {
+            "invoiceNumber": 1
+          },
+          "nullableFields": [],
+          "name": "Invoice_invoiceNumber_key",
+          "reviewRequired": false
+        },
+        {
+          "unique": true,
+          "source": "@unique",
+          "primary": false,
+          "key": {
+            "orderId": 1
+          },
+          "nullableFields": [],
+          "name": "Invoice_orderId_key",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "userId": 1,
+            "status": 1,
+            "dueDate": 1
+          },
+          "nullableFields": [],
+          "name": "Invoice_userId_status_dueDate_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "Order",
+      "collection": "Order",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": true,
+          "source": "@unique",
+          "primary": false,
+          "key": {
+            "orderNumber": 1
+          },
+          "nullableFields": [],
+          "name": "Order_orderNumber_key",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "customerId": 1
+          },
+          "nullableFields": [
+            "customerId"
+          ],
+          "name": "Order_customerId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "erpSalesOrderId": 1
+          },
+          "nullableFields": [
+            "erpSalesOrderId"
+          ],
+          "name": "Order_erpSalesOrderId_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "OrderItem",
+      "collection": "OrderItem",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "PurchaseOrder",
+      "collection": "PurchaseOrder",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": true,
+          "source": "@unique",
+          "primary": false,
+          "key": {
+            "purchaseOrderNumber": 1
+          },
+          "nullableFields": [],
+          "name": "PurchaseOrder_purchaseOrderNumber_key",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "supplierId": 1
+          },
+          "nullableFields": [],
+          "name": "PurchaseOrder_supplierId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "warehouseId": 1
+          },
+          "nullableFields": [],
+          "name": "PurchaseOrder_warehouseId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "status": 1
+          },
+          "nullableFields": [],
+          "name": "PurchaseOrder_status_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "createdAt": 1
+          },
+          "nullableFields": [],
+          "name": "PurchaseOrder_createdAt_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "PurchaseOrderItem",
+      "collection": "PurchaseOrderItem",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "purchaseOrderId": 1
+          },
+          "nullableFields": [],
+          "name": "PurchaseOrderItem_purchaseOrderId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "productId": 1
+          },
+          "nullableFields": [],
+          "name": "PurchaseOrderItem_productId_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "GoodsReceipt",
+      "collection": "GoodsReceipt",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": true,
+          "source": "@unique",
+          "primary": false,
+          "key": {
+            "receiptNumber": 1
+          },
+          "nullableFields": [],
+          "name": "GoodsReceipt_receiptNumber_key",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "purchaseOrderId": 1
+          },
+          "nullableFields": [],
+          "name": "GoodsReceipt_purchaseOrderId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "supplierId": 1
+          },
+          "nullableFields": [],
+          "name": "GoodsReceipt_supplierId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "warehouseId": 1
+          },
+          "nullableFields": [],
+          "name": "GoodsReceipt_warehouseId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "status": 1
+          },
+          "nullableFields": [],
+          "name": "GoodsReceipt_status_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "createdAt": 1
+          },
+          "nullableFields": [],
+          "name": "GoodsReceipt_createdAt_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "GoodsReceiptItem",
+      "collection": "GoodsReceiptItem",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "goodsReceiptId": 1
+          },
+          "nullableFields": [],
+          "name": "GoodsReceiptItem_goodsReceiptId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "purchaseOrderItemId": 1
+          },
+          "nullableFields": [],
+          "name": "GoodsReceiptItem_purchaseOrderItemId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "productId": 1
+          },
+          "nullableFields": [],
+          "name": "GoodsReceiptItem_productId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "destinationBinId": 1
+          },
+          "nullableFields": [
+            "destinationBinId"
+          ],
+          "name": "GoodsReceiptItem_destinationBinId_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "Permission",
+      "collection": "Permission",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "role": 1
+          },
+          "nullableFields": [
+            "role"
+          ],
+          "name": "Permission_role_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "resource": 1
+          },
+          "nullableFields": [
+            "resource"
+          ],
+          "name": "Permission_resource_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "WarehouseZone",
+      "collection": "WarehouseZone",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": true,
+          "source": "@@unique",
+          "primary": false,
+          "key": {
+            "warehouseId": 1,
+            "code": 1
+          },
+          "nullableFields": [],
+          "name": "WarehouseZone_warehouseId_code_key",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "warehouseId": 1
+          },
+          "nullableFields": [],
+          "name": "WarehouseZone_warehouseId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "active": 1
+          },
+          "nullableFields": [],
+          "name": "WarehouseZone_active_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "WarehouseRack",
+      "collection": "WarehouseRack",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": true,
+          "source": "@@unique",
+          "primary": false,
+          "key": {
+            "zoneId": 1,
+            "code": 1
+          },
+          "nullableFields": [],
+          "name": "WarehouseRack_zoneId_code_key",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "zoneId": 1
+          },
+          "nullableFields": [],
+          "name": "WarehouseRack_zoneId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "warehouseId": 1
+          },
+          "nullableFields": [],
+          "name": "WarehouseRack_warehouseId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "active": 1
+          },
+          "nullableFields": [],
+          "name": "WarehouseRack_active_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "WarehouseShelf",
+      "collection": "WarehouseShelf",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": true,
+          "source": "@@unique",
+          "primary": false,
+          "key": {
+            "rackId": 1,
+            "code": 1
+          },
+          "nullableFields": [],
+          "name": "WarehouseShelf_rackId_code_key",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "rackId": 1
+          },
+          "nullableFields": [],
+          "name": "WarehouseShelf_rackId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "warehouseId": 1
+          },
+          "nullableFields": [],
+          "name": "WarehouseShelf_warehouseId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "active": 1
+          },
+          "nullableFields": [],
+          "name": "WarehouseShelf_active_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "WarehouseBin",
+      "collection": "WarehouseBin",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": true,
+          "source": "@@unique",
+          "primary": false,
+          "key": {
+            "shelfId": 1,
+            "code": 1
+          },
+          "nullableFields": [],
+          "name": "WarehouseBin_shelfId_code_key",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "shelfId": 1
+          },
+          "nullableFields": [],
+          "name": "WarehouseBin_shelfId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "warehouseId": 1
+          },
+          "nullableFields": [],
+          "name": "WarehouseBin_warehouseId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "active": 1
+          },
+          "nullableFields": [],
+          "name": "WarehouseBin_active_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "StockLocationAllocation",
+      "collection": "StockLocationAllocation",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": true,
+          "source": "@@unique",
+          "primary": false,
+          "key": {
+            "productId": 1,
+            "binId": 1
+          },
+          "nullableFields": [],
+          "name": "StockLocationAllocation_productId_binId_key",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "productId": 1
+          },
+          "nullableFields": [],
+          "name": "StockLocationAllocation_productId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "warehouseId": 1
+          },
+          "nullableFields": [],
+          "name": "StockLocationAllocation_warehouseId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "binId": 1
+          },
+          "nullableFields": [],
+          "name": "StockLocationAllocation_binId_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "Product",
+      "collection": "Product",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": true,
+          "source": "@unique",
+          "primary": false,
+          "key": {
+            "sku": 1
+          },
+          "nullableFields": [],
+          "name": "Product_sku_key",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "deletedAt": 1
+          },
+          "nullableFields": [
+            "deletedAt"
+          ],
+          "name": "Product_deletedAt_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "categoryId": 1
+          },
+          "nullableFields": [
+            "categoryId"
+          ],
+          "name": "Product_categoryId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "supplierId": 1
+          },
+          "nullableFields": [],
+          "name": "Product_supplierId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "brandId": 1
+          },
+          "nullableFields": [
+            "brandId"
+          ],
+          "name": "Product_brandId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "barcode": 1
+          },
+          "nullableFields": [
+            "barcode"
+          ],
+          "name": "Product_barcode_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "StockAllocation",
+      "collection": "StockAllocation",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": true,
+          "source": "@@unique",
+          "primary": false,
+          "key": {
+            "productId": 1,
+            "warehouseId": 1
+          },
+          "nullableFields": [],
+          "name": "StockAllocation_productId_warehouseId_key",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "productId": 1
+          },
+          "nullableFields": [],
+          "name": "StockAllocation_productId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "warehouseId": 1
+          },
+          "nullableFields": [],
+          "name": "StockAllocation_warehouseId_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "StockTransfer",
+      "collection": "StockTransfer",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "productId": 1
+          },
+          "nullableFields": [],
+          "name": "StockTransfer_productId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "fromWarehouseId": 1
+          },
+          "nullableFields": [],
+          "name": "StockTransfer_fromWarehouseId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "toWarehouseId": 1
+          },
+          "nullableFields": [],
+          "name": "StockTransfer_toWarehouseId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "status": 1
+          },
+          "nullableFields": [],
+          "name": "StockTransfer_status_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "InventoryOperation",
+      "collection": "InventoryOperation",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": true,
+          "source": "@unique",
+          "primary": false,
+          "key": {
+            "operationKey": 1
+          },
+          "nullableFields": [],
+          "name": "InventoryOperation_operationKey_key",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "StockMovement",
+      "collection": "StockMovement",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": true,
+          "source": "@unique",
+          "primary": false,
+          "key": {
+            "movementNumber": 1
+          },
+          "nullableFields": [],
+          "name": "StockMovement_movementNumber_key",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "productId": 1
+          },
+          "nullableFields": [],
+          "name": "StockMovement_productId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "warehouseId": 1
+          },
+          "nullableFields": [],
+          "name": "StockMovement_warehouseId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "batchId": 1
+          },
+          "nullableFields": [
+            "batchId"
+          ],
+          "name": "StockMovement_batchId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "movementType": 1
+          },
+          "nullableFields": [],
+          "name": "StockMovement_movementType_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "createdAt": 1
+          },
+          "nullableFields": [],
+          "name": "StockMovement_createdAt_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "referenceType": 1,
+            "referenceId": 1
+          },
+          "nullableFields": [
+            "referenceType",
+            "referenceId"
+          ],
+          "name": "StockMovement_referenceType_referenceId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "sourceBinId": 1
+          },
+          "nullableFields": [
+            "sourceBinId"
+          ],
+          "name": "StockMovement_sourceBinId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "destinationBinId": 1
+          },
+          "nullableFields": [
+            "destinationBinId"
+          ],
+          "name": "StockMovement_destinationBinId_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "Warehouse",
+      "collection": "Warehouse",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "userId": 1
+          },
+          "nullableFields": [],
+          "name": "Warehouse_userId_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "Supplier",
+      "collection": "Supplier",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "User",
+      "collection": "User",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": true,
+          "source": "@unique",
+          "primary": false,
+          "key": {
+            "email": 1
+          },
+          "nullableFields": [],
+          "name": "User_email_key",
+          "reviewRequired": false
+        },
+        {
+          "unique": true,
+          "source": "@unique",
+          "primary": false,
+          "key": {
+            "username": 1
+          },
+          "nullableFields": [
+            "username"
+          ],
+          "name": "User_username_key",
+          "reviewRequired": true,
+          "warning": "Nullable unique semantics: review existing null/missing/duplicate values and approve a partial-index policy before applying; do not run blanket db push."
+        }
+      ]
+    },
+    {
+      "model": "RevokedSession",
+      "collection": "RevokedSession",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": true,
+          "source": "@unique",
+          "primary": false,
+          "key": {
+            "tokenDigest": 1
+          },
+          "nullableFields": [],
+          "name": "RevokedSession_tokenDigest_key",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "expiresAt": 1
+          },
+          "nullableFields": [],
+          "name": "RevokedSession_expiresAt_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "ImportHistory",
+      "collection": "ImportHistory",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "Notification",
+      "collection": "Notification",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "userId": 1,
+            "read": 1,
+            "createdAt": 1
+          },
+          "nullableFields": [],
+          "name": "Notification_userId_read_createdAt_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "SupportTicket",
+      "collection": "SupportTicket",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "userId": 1
+          },
+          "nullableFields": [],
+          "name": "SupportTicket_userId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "status": 1
+          },
+          "nullableFields": [],
+          "name": "SupportTicket_status_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "assignedToId": 1
+          },
+          "nullableFields": [
+            "assignedToId"
+          ],
+          "name": "SupportTicket_assignedToId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "createdAt": 1
+          },
+          "nullableFields": [],
+          "name": "SupportTicket_createdAt_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "SupportTicketReply",
+      "collection": "SupportTicketReply",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "ticketId": 1
+          },
+          "nullableFields": [],
+          "name": "SupportTicketReply_ticketId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "userId": 1
+          },
+          "nullableFields": [],
+          "name": "SupportTicketReply_userId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "createdAt": 1
+          },
+          "nullableFields": [],
+          "name": "SupportTicketReply_createdAt_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "ProductReview",
+      "collection": "ProductReview",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "productId": 1
+          },
+          "nullableFields": [],
+          "name": "ProductReview_productId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "orderId": 1,
+            "productId": 1,
+            "userId": 1
+          },
+          "nullableFields": [
+            "orderId"
+          ],
+          "name": "ProductReview_orderId_productId_userId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "userId": 1
+          },
+          "nullableFields": [],
+          "name": "ProductReview_userId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "orderId": 1
+          },
+          "nullableFields": [
+            "orderId"
+          ],
+          "name": "ProductReview_orderId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "status": 1
+          },
+          "nullableFields": [],
+          "name": "ProductReview_status_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "rating": 1
+          },
+          "nullableFields": [],
+          "name": "ProductReview_rating_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "createdAt": 1
+          },
+          "nullableFields": [],
+          "name": "ProductReview_createdAt_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "SystemConfig",
+      "collection": "SystemConfig",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": true,
+          "source": "@unique",
+          "primary": false,
+          "key": {
+            "key": 1
+          },
+          "nullableFields": [],
+          "name": "SystemConfig_key_key",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "category": 1
+          },
+          "nullableFields": [],
+          "name": "SystemConfig_category_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "isPublic": 1
+          },
+          "nullableFields": [],
+          "name": "SystemConfig_isPublic_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "AuditLog",
+      "collection": "AuditLog",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "userId": 1
+          },
+          "nullableFields": [],
+          "name": "AuditLog_userId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "action": 1
+          },
+          "nullableFields": [],
+          "name": "AuditLog_action_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "entityType": 1
+          },
+          "nullableFields": [],
+          "name": "AuditLog_entityType_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "createdAt": 1
+          },
+          "nullableFields": [],
+          "name": "AuditLog_createdAt_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "Customer",
+      "collection": "Customer",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": true,
+          "source": "@unique",
+          "primary": false,
+          "key": {
+            "customerCode": 1
+          },
+          "nullableFields": [],
+          "name": "Customer_customerCode_key",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "name": 1
+          },
+          "nullableFields": [],
+          "name": "Customer_name_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "phone": 1
+          },
+          "nullableFields": [
+            "phone"
+          ],
+          "name": "Customer_phone_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "active": 1
+          },
+          "nullableFields": [],
+          "name": "Customer_active_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "SalesOrder",
+      "collection": "SalesOrder",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": true,
+          "source": "@unique",
+          "primary": false,
+          "key": {
+            "salesOrderNumber": 1
+          },
+          "nullableFields": [],
+          "name": "SalesOrder_salesOrderNumber_key",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "customerId": 1
+          },
+          "nullableFields": [],
+          "name": "SalesOrder_customerId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "warehouseId": 1
+          },
+          "nullableFields": [],
+          "name": "SalesOrder_warehouseId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "status": 1
+          },
+          "nullableFields": [],
+          "name": "SalesOrder_status_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "createdAt": 1
+          },
+          "nullableFields": [],
+          "name": "SalesOrder_createdAt_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "SalesOrderItem",
+      "collection": "SalesOrderItem",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "salesOrderId": 1
+          },
+          "nullableFields": [],
+          "name": "SalesOrderItem_salesOrderId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "productId": 1
+          },
+          "nullableFields": [],
+          "name": "SalesOrderItem_productId_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "StockReservation",
+      "collection": "StockReservation",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": true,
+          "source": "@unique",
+          "primary": false,
+          "key": {
+            "reservationNumber": 1
+          },
+          "nullableFields": [],
+          "name": "StockReservation_reservationNumber_key",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "salesOrderId": 1
+          },
+          "nullableFields": [],
+          "name": "StockReservation_salesOrderId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "warehouseId": 1
+          },
+          "nullableFields": [],
+          "name": "StockReservation_warehouseId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "status": 1
+          },
+          "nullableFields": [],
+          "name": "StockReservation_status_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "createdAt": 1
+          },
+          "nullableFields": [],
+          "name": "StockReservation_createdAt_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "StockReservationItem",
+      "collection": "StockReservationItem",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "reservationId": 1
+          },
+          "nullableFields": [],
+          "name": "StockReservationItem_reservationId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "salesOrderItemId": 1
+          },
+          "nullableFields": [],
+          "name": "StockReservationItem_salesOrderItemId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "productId": 1
+          },
+          "nullableFields": [],
+          "name": "StockReservationItem_productId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "warehouseId": 1
+          },
+          "nullableFields": [],
+          "name": "StockReservationItem_warehouseId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "batchId": 1
+          },
+          "nullableFields": [
+            "batchId"
+          ],
+          "name": "StockReservationItem_batchId_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "PickList",
+      "collection": "PickList",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": true,
+          "source": "@unique",
+          "primary": false,
+          "key": {
+            "pickListNumber": 1
+          },
+          "nullableFields": [],
+          "name": "PickList_pickListNumber_key",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "salesOrderId": 1
+          },
+          "nullableFields": [],
+          "name": "PickList_salesOrderId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "reservationId": 1
+          },
+          "nullableFields": [],
+          "name": "PickList_reservationId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "warehouseId": 1
+          },
+          "nullableFields": [],
+          "name": "PickList_warehouseId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "status": 1
+          },
+          "nullableFields": [],
+          "name": "PickList_status_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "assignedTo": 1
+          },
+          "nullableFields": [
+            "assignedTo"
+          ],
+          "name": "PickList_assignedTo_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "createdAt": 1
+          },
+          "nullableFields": [],
+          "name": "PickList_createdAt_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "PickListItem",
+      "collection": "PickListItem",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "pickListId": 1
+          },
+          "nullableFields": [],
+          "name": "PickListItem_pickListId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "salesOrderItemId": 1
+          },
+          "nullableFields": [],
+          "name": "PickListItem_salesOrderItemId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "reservationItemId": 1
+          },
+          "nullableFields": [],
+          "name": "PickListItem_reservationItemId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "productId": 1
+          },
+          "nullableFields": [],
+          "name": "PickListItem_productId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "status": 1
+          },
+          "nullableFields": [],
+          "name": "PickListItem_status_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "PickAllocation",
+      "collection": "PickAllocation",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "pickListItemId": 1
+          },
+          "nullableFields": [],
+          "name": "PickAllocation_pickListItemId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "binId": 1
+          },
+          "nullableFields": [],
+          "name": "PickAllocation_binId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "productId": 1
+          },
+          "nullableFields": [],
+          "name": "PickAllocation_productId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "batchId": 1
+          },
+          "nullableFields": [
+            "batchId"
+          ],
+          "name": "PickAllocation_batchId_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "Dispatch",
+      "collection": "Dispatch",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": true,
+          "source": "@unique",
+          "primary": false,
+          "key": {
+            "dispatchNumber": 1
+          },
+          "nullableFields": [],
+          "name": "Dispatch_dispatchNumber_key",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "salesOrderId": 1
+          },
+          "nullableFields": [],
+          "name": "Dispatch_salesOrderId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "pickListId": 1
+          },
+          "nullableFields": [],
+          "name": "Dispatch_pickListId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "warehouseId": 1
+          },
+          "nullableFields": [],
+          "name": "Dispatch_warehouseId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "status": 1
+          },
+          "nullableFields": [],
+          "name": "Dispatch_status_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "deliveryStatus": 1
+          },
+          "nullableFields": [
+            "deliveryStatus"
+          ],
+          "name": "Dispatch_deliveryStatus_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "postedAt": 1
+          },
+          "nullableFields": [
+            "postedAt"
+          ],
+          "name": "Dispatch_postedAt_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "createdAt": 1
+          },
+          "nullableFields": [],
+          "name": "Dispatch_createdAt_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "DispatchItem",
+      "collection": "DispatchItem",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "dispatchId": 1
+          },
+          "nullableFields": [],
+          "name": "DispatchItem_dispatchId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "salesOrderItemId": 1
+          },
+          "nullableFields": [],
+          "name": "DispatchItem_salesOrderItemId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "pickListItemId": 1
+          },
+          "nullableFields": [],
+          "name": "DispatchItem_pickListItemId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "productId": 1
+          },
+          "nullableFields": [],
+          "name": "DispatchItem_productId_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "DispatchBinAllocation",
+      "collection": "DispatchBinAllocation",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "dispatchItemId": 1
+          },
+          "nullableFields": [],
+          "name": "DispatchBinAllocation_dispatchItemId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "binId": 1
+          },
+          "nullableFields": [],
+          "name": "DispatchBinAllocation_binId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "productId": 1
+          },
+          "nullableFields": [],
+          "name": "DispatchBinAllocation_productId_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "StockAdjustment",
+      "collection": "StockAdjustment",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": true,
+          "source": "@unique",
+          "primary": false,
+          "key": {
+            "adjustmentNumber": 1
+          },
+          "nullableFields": [],
+          "name": "StockAdjustment_adjustmentNumber_key",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "warehouseId": 1
+          },
+          "nullableFields": [],
+          "name": "StockAdjustment_warehouseId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "status": 1
+          },
+          "nullableFields": [],
+          "name": "StockAdjustment_status_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "adjustmentType": 1
+          },
+          "nullableFields": [],
+          "name": "StockAdjustment_adjustmentType_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "createdAt": 1
+          },
+          "nullableFields": [],
+          "name": "StockAdjustment_createdAt_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "postedAt": 1
+          },
+          "nullableFields": [
+            "postedAt"
+          ],
+          "name": "StockAdjustment_postedAt_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "StockAdjustmentItem",
+      "collection": "StockAdjustmentItem",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "adjustmentId": 1
+          },
+          "nullableFields": [],
+          "name": "StockAdjustmentItem_adjustmentId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "productId": 1
+          },
+          "nullableFields": [],
+          "name": "StockAdjustmentItem_productId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "warehouseId": 1
+          },
+          "nullableFields": [],
+          "name": "StockAdjustmentItem_warehouseId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "binId": 1
+          },
+          "nullableFields": [
+            "binId"
+          ],
+          "name": "StockAdjustmentItem_binId_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "InventoryCount",
+      "collection": "InventoryCount",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": true,
+          "source": "@unique",
+          "primary": false,
+          "key": {
+            "countNumber": 1
+          },
+          "nullableFields": [],
+          "name": "InventoryCount_countNumber_key",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "warehouseId": 1
+          },
+          "nullableFields": [],
+          "name": "InventoryCount_warehouseId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "status": 1
+          },
+          "nullableFields": [],
+          "name": "InventoryCount_status_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "scopeType": 1
+          },
+          "nullableFields": [],
+          "name": "InventoryCount_scopeType_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "createdAt": 1
+          },
+          "nullableFields": [],
+          "name": "InventoryCount_createdAt_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "startedAt": 1
+          },
+          "nullableFields": [
+            "startedAt"
+          ],
+          "name": "InventoryCount_startedAt_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "InventoryCountItem",
+      "collection": "InventoryCountItem",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "countId": 1
+          },
+          "nullableFields": [],
+          "name": "InventoryCountItem_countId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "productId": 1
+          },
+          "nullableFields": [],
+          "name": "InventoryCountItem_productId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "binId": 1
+          },
+          "nullableFields": [
+            "binId"
+          ],
+          "name": "InventoryCountItem_binId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "batchId": 1
+          },
+          "nullableFields": [
+            "batchId"
+          ],
+          "name": "InventoryCountItem_batchId_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "InventoryBatch",
+      "collection": "InventoryBatch",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": true,
+          "source": "@@unique",
+          "primary": false,
+          "key": {
+            "batchNumber": 1,
+            "productId": 1,
+            "warehouseId": 1
+          },
+          "nullableFields": [],
+          "name": "InventoryBatch_batchNumber_productId_warehouseId_key",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "productId": 1,
+            "warehouseId": 1
+          },
+          "nullableFields": [],
+          "name": "InventoryBatch_productId_warehouseId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "expiryDate": 1
+          },
+          "nullableFields": [
+            "expiryDate"
+          ],
+          "name": "InventoryBatch_expiryDate_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "status": 1
+          },
+          "nullableFields": [],
+          "name": "InventoryBatch_status_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "Project",
+      "collection": "Project",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": true,
+          "source": "@unique",
+          "primary": false,
+          "key": {
+            "code": 1
+          },
+          "nullableFields": [],
+          "name": "Project_code_key",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "ProjectMaterialIssue",
+      "collection": "ProjectMaterialIssue",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": true,
+          "source": "@unique",
+          "primary": false,
+          "key": {
+            "issueNumber": 1
+          },
+          "nullableFields": [],
+          "name": "ProjectMaterialIssue_issueNumber_key",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "projectId": 1,
+            "status": 1
+          },
+          "nullableFields": [],
+          "name": "ProjectMaterialIssue_projectId_status_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "warehouseId": 1,
+            "status": 1
+          },
+          "nullableFields": [],
+          "name": "ProjectMaterialIssue_warehouseId_status_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "ProjectMaterialIssueItem",
+      "collection": "ProjectMaterialIssueItem",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "productId": 1,
+            "warehouseId": 1
+          },
+          "nullableFields": [],
+          "name": "ProjectMaterialIssueItem_productId_warehouseId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "projectIssueId": 1
+          },
+          "nullableFields": [],
+          "name": "ProjectMaterialIssueItem_projectIssueId_idx",
+          "reviewRequired": false
+        }
+      ]
+    },
+    {
+      "model": "ProjectMaterialIssueReturn",
+      "collection": "ProjectMaterialIssueReturn",
+      "indexes": [
+        {
+          "unique": true,
+          "source": "@id",
+          "primary": true,
+          "key": {
+            "_id": 1
+          },
+          "nullableFields": [],
+          "name": "_id_",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "projectIssueId": 1
+          },
+          "nullableFields": [],
+          "name": "ProjectMaterialIssueReturn_projectIssueId_idx",
+          "reviewRequired": false
+        },
+        {
+          "unique": false,
+          "source": "@@index",
+          "primary": false,
+          "key": {
+            "issueItemId": 1
+          },
+          "nullableFields": [],
+          "name": "ProjectMaterialIssueReturn_issueItemId_idx",
+          "reviewRequired": false
+        }
+      ]
+    }
+  ],
+  "modelCount": 53,
+  "indexCount": 237,
+  "nullableUniqueReviewCount": 1
+}

@@ -40,7 +40,11 @@
     "**/*.tsx",
     ".next/types/**/*.ts",
     "types",
-    ".next/dev/types/**/*.ts"
+    ".next/dev/types/**/*.ts",
+    ".next-codex-online-atlas/types/**/*.ts",
+    ".next-codex-online-atlas/dev/types/**/*.ts",
+    ".next-codex-windows-build/types/**/*.ts",
+    ".next-codex-windows-build/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

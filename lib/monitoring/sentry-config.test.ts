@@ -44,6 +44,14 @@ function safariRemoveChildEvent(extra?: Partial<ErrorEvent>): ErrorEvent {
 }
 
 describe("isBrowserTranslationRemoveChildError", () => {
+  it('scrubs mixed-case request credentials, bodies, queries and personal identity', () => {
+    const event = { type: undefined, request: { url: 'https://user:password@example.test/api?token=private-query', headers: { Authorization: 'Bearer private-token', Cookie: 'private-cookie' }, data: 'private-body', query_string: 'private-query' },
+      user: { id: 'employee', email: 'private@example.test', username: 'private-name' }, extra: { password: 'private-password' },
+      exception: { values: [{ type: 'Error', value: 'mongodb://user:pass@127.0.0.1/db' }] } } as ErrorEvent;
+    const safe = JSON.stringify(scrubSentryEvent(event));
+    for (const secret of ['private-query','private-token','private-cookie','private-body','private@example.test','private-name','private-password','user:pass']) expect(safe).not.toContain(secret);
+    expect(safe).toContain('employee');
+  });
   it("returns false for unrelated errors", () => {
     const event = {
       exception: { values: [{ type: "TypeError", value: "x" }] },

@@ -128,7 +128,7 @@ export async function getClientBrowseProductsForPage(
     }),
   ]);
 
-  const categoryIds = [...new Set(allOwnerProducts.map((p) => p.categoryId))];
+  const categoryIds = [...new Set(allOwnerProducts.map((p) => p.categoryId).filter((id): id is string => id !== null))];
   const supplierIds = [...new Set(allOwnerProducts.map((p) => p.supplierId))];
 
   const [categories, suppliers] = await Promise.all([
@@ -154,9 +154,9 @@ export async function getClientBrowseProductsForPage(
       quantity: Number(p.quantity),
       reservedQuantity: Number(p.reservedQuantity ?? 0),
       status: p.status,
-      categoryId: p.categoryId,
+      categoryId: p.categoryId ?? "",
       supplierId: p.supplierId,
-      category: categoryMap.get(p.categoryId) || "Unknown",
+      category: (p.categoryId ? categoryMap.get(p.categoryId) : undefined) || "Unknown",
       supplier: supplierMap.get(p.supplierId) || "Unknown",
       userId: p.userId,
       createdBy: p.createdBy,

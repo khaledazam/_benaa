@@ -40,9 +40,9 @@ export default function CustomersView() {
   const [notes, setNotes] = useState("");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const canCreate = hasPermission(userRole, BuildStockPermissions.CUSTOMER_CREATE);
-  const canUpdate = hasPermission(userRole, BuildStockPermissions.CUSTOMER_UPDATE);
-  const canDeactivate = hasPermission(userRole, BuildStockPermissions.CUSTOMER_DEACTIVATE);
+  const canCreate = hasPermission(user, BuildStockPermissions.CUSTOMER_CREATE);
+  const canUpdate = hasPermission(user, BuildStockPermissions.CUSTOMER_UPDATE);
+  const canDeactivate = hasPermission(user, BuildStockPermissions.CUSTOMER_DEACTIVATE);
 
   // 1. Fetch Customers
   const { data, isLoading } = useQuery({

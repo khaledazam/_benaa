@@ -33,6 +33,8 @@ vi.mock("@/prisma/client", () => ({
     supplier: { findUnique: vi.fn() },
     user: { findUnique: vi.fn(), findMany: vi.fn() },
     stockAllocation: { findMany: vi.fn() },
+    stockReservationItem: { findMany: vi.fn().mockResolvedValue([]) },
+    projectMaterialIssueItem: { findMany: vi.fn().mockResolvedValue([]) },
   },
 }));
 
@@ -122,6 +124,29 @@ describe("getProductDetailForPage recentOrders (REQ-0077)", () => {
     vi.clearAllMocks();
     getCacheMock.mockResolvedValue(null);
     vi.mocked(prisma.stockAllocation.findMany).mockResolvedValue([]);
+  });
+
+  it('does not read a shared administrator cache for an employee and excludes customer order enrichment', async () => {
+    getCacheMock.mockResolvedValue({ privateCustomer: 'must-never-be-served', committedQuantity: 0 });
+    mockProductDbRow();
+    const result = await getProductDetailForPage({ id: 'employee', role: 'VIEWER' }, 'prod-1');
+    expect(getCacheMock).not.toHaveBeenCalled();
+    expect(result?.recentOrders).toEqual([]);
+    expect(JSON.stringify(result)).not.toContain('buyer@test.com');
+    expect(JSON.stringify(result)).not.toContain('must-never-be-served');
+  });
+  it('checks current explicit product permissions before any cache or database access', async () => {
+    expect(await getProductDetailForPage({ id: 'employee', role: 'WAREHOUSE_MANAGER', permissionsRestricted: true, permissions: [] }, 'prod-1')).toBeNull();
+    expect(getCacheMock).not.toHaveBeenCalled(); expect(prisma.product.findFirst).not.toHaveBeenCalled();
+  });
+  it('preserves a legacy customer own-order view without exposing another customer order', async () => {
+    mockProductDbRow();
+    const own = await getProductDetailForPage({ id: 'buyer-1', role: 'client' }, 'prod-1');
+    expect(own?.recentOrders).toHaveLength(1);
+    const other = await getProductDetailForPage({ id: 'other-buyer', role: 'client' }, 'prod-1');
+    expect(other?.recentOrders).toEqual([]);
+    expect(JSON.stringify(other)).not.toContain('buyer@test.com');
+    expect(getCacheMock).not.toHaveBeenCalled();
   });
 
   it("includes placedBy on recentOrders from order.userId lookup", async () => {

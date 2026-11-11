@@ -473,7 +473,7 @@ export default function InvoiceDialog({
       // Validate using Zod schema
       const validationResult = createInvoiceSchema.safeParse(invoiceData);
       if (!validationResult.success) {
-        const errorMessages = validationResult.error.errors
+        const errorMessages = validationResult.error.issues
           .map((err) => `${err.path.join(".")}: ${err.message}`)
           .join(". ");
         toast({

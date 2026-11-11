@@ -1,14 +1,16 @@
+import { withWarehouseScope } from "@/lib/auth/warehouse-route-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/requireRole";
 import { prisma } from "@/prisma/client";
-import { executeStockMutation, StockMovementType } from "@/lib/inventory/stockService";
+import { postManualMovement, ManualMovementError } from "@/lib/inventory/manualMovement";
+import { scheduleInvalidateStockAllocationCaches } from "@/lib/cache/post-mutation";
 import { BuildStockPermissions } from "@/lib/auth/permissions";
 
 /**
  * GET /api/stock-movements
  * Returns Stock Movement Ledger history with optional filters.
  */
-export async function GET(request: NextRequest) {
+async function scopedGET(request: NextRequest) {
   const auth = await requireAuth(request, BuildStockPermissions.STOCK_VIEW);
   if (auth instanceof NextResponse) return auth;
 
@@ -41,7 +43,7 @@ export async function GET(request: NextRequest) {
  * Executes a stock movement (OPENING_BALANCE, PURCHASE, DAMAGE, LOSS, ADJUSTMENT_IN, ADJUSTMENT_OUT, etc.)
  * through the central Stock Service.
  */
-export async function POST(request: NextRequest) {
+async function scopedPOST(request: NextRequest) {
   const auth = await requireAuth(request, BuildStockPermissions.STOCK_IN);
   if (auth instanceof NextResponse) return auth;
 
@@ -79,21 +81,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await executeStockMutation({
-      productId,
-      warehouseId,
-      quantity,
-      unitId,
-      movementType: movementType as StockMovementType,
-      referenceType,
-      referenceId,
-      reason,
-      performedBy: auth.session.id,
-      approvedBy,
-    });
+    const result = await postManualMovement(prisma, auth.session.id, body, request.headers.get("idempotency-key"));
+    scheduleInvalidateStockAllocationCaches();
 
     return NextResponse.json(result, { status: 201 });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    return NextResponse.json({ error: error.message }, { status: error instanceof ManualMovementError ? error.status : 400 });
   }
 }
+
+export const GET = withWarehouseScope(scopedGET);
+export const POST = withWarehouseScope(scopedPOST);

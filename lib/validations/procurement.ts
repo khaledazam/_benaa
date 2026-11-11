@@ -32,6 +32,7 @@ export const goodsReceiptItemSchema = z.object({
   productId: z.string().min(1, "Product is required"),
   receivedQuantity: z.number().positive("Received quantity must be greater than 0"),
   unitId: z.string().optional().or(z.null()),
+  destinationBinId: z.string().min(1).optional().nullable(),
   notes: z.string().optional().or(z.null()),
 });
 

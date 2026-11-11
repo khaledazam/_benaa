@@ -16,26 +16,29 @@ declare global {
 // Only initialize Prisma on server-side
 const isServer = typeof window === "undefined";
 
+let defaultPrisma: PrismaClient | undefined;
+function currentClient(): PrismaClient {
+  if(process.env.BENAA_TEST_RUN_ID && (globalThis.prisma as any)?.__benaaTestFenceRunId !== process.env.BENAA_TEST_RUN_ID) {
+    throw new Error('BENAA authorized test fence is not initialized');
+  }
+  // Importing a service must not open the .env database before an isolated
+  // runner has selected its explicit datasource. Connection is demand-driven.
+  if (globalThis.prisma) return globalThis.prisma;
+  defaultPrisma ??= new PrismaClient({
+    log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
+  });
+  if (process.env.NODE_ENV !== "production") globalThis.prisma = defaultPrisma;
+  return defaultPrisma;
+}
+
 export const prisma = isServer
-  ? (globalThis as { prisma?: PrismaClient }).prisma ||
-    new PrismaClient({
-      log:
-        process.env.NODE_ENV === "development"
-          ? ["error", "warn"] // Removed "query" to reduce log noise
-          : ["error"],
+  ? new Proxy({} as PrismaClient, {
+      get(_target, prop) {
+        const client = currentClient();
+        const val = (client as any)[prop];
+        return typeof val === "function" ? val.bind(client) : val;
+      },
     })
-  : ({} as PrismaClient); // Dummy client for client-side (should never be used)
-
-if (isServer && process.env.NODE_ENV !== "production") {
-  (globalThis as { prisma?: PrismaClient }).prisma = prisma;
-}
-
-// Test database connection (server-side only)
-if (isServer) {
-  prisma
-    .$connect()
-    .then(() => console.log("✓ Connected to the database"))
-    .catch((error) => console.error("✗ Database connection error:", error));
-}
+  : ({} as PrismaClient);
 
 export default prisma;

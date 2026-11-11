@@ -34,7 +34,7 @@ export default function PickListsView() {
   const [page, setPage] = useState(1);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
-  const canCreate = hasPermission(userRole, BuildStockPermissions.PICK_LIST_CREATE);
+  const canCreate = hasPermission(user, BuildStockPermissions.PICK_LIST_CREATE);
 
   // Fetch Warehouses for Filter
   const { data: warehouses } = useQuery({

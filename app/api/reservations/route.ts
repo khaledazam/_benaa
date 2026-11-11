@@ -1,16 +1,18 @@
+import { withWarehouseScope } from "@/lib/auth/warehouse-route-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth-server";
 import { mapSessionToAppUser } from "@/lib/auth/map-session-user";
 import { hasPermission, BuildStockPermissions } from "@/lib/auth/permissions";
 import { createStockReservation, getReservations } from "@/lib/reservations/reservationService";
 
-export async function GET(req: NextRequest) {
+async function scopedGET(req: NextRequest) {
   try {
     const session = await getSession();
+    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const user = session ? mapSessionToAppUser(session) : null;
     const role = user?.role || "VIEWER";
 
-    if (!hasPermission(role, BuildStockPermissions.RESERVATION_VIEW)) {
+    if (!hasPermission(user, BuildStockPermissions.RESERVATION_VIEW)) {
       return NextResponse.json({ error: "Forbidden: Insufficient permissions to view stock reservations" }, { status: 403 });
     }
 
@@ -37,13 +39,14 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export async function POST(req: NextRequest) {
+async function scopedPOST(req: NextRequest) {
   try {
     const session = await getSession();
+    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const user = session ? mapSessionToAppUser(session) : null;
     const role = user?.role || "VIEWER";
 
-    if (!hasPermission(role, BuildStockPermissions.RESERVATION_CREATE)) {
+    if (!hasPermission(user, BuildStockPermissions.RESERVATION_CREATE)) {
       return NextResponse.json({ error: "Forbidden: Insufficient permissions to create stock reservation" }, { status: 403 });
     }
 
@@ -61,3 +64,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error.message || "Failed to create stock reservation" }, { status });
   }
 }
+
+export const GET = withWarehouseScope(scopedGET);
+export const POST = withWarehouseScope(scopedPOST);

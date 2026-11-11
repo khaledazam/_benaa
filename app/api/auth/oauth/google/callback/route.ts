@@ -4,18 +4,15 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { generateToken, sessionCookieOptions } from "@/utils/auth";
+import { generateToken, sessionCookieOptions, isAccountAccessAllowed } from "@/utils/auth";
 import {
   getGoogleClientId,
   getGoogleClientSecret,
   isGoogleOAuthConfigured,
 } from "@/lib/auth/oauth";
 import { logger } from "@/lib/logger";
-import { generateUniqueUsername } from "@/lib/auth/unique-username";
 import { scheduleInvalidateAuthCaches } from "@/lib/cache";
 import { prisma } from "@/prisma/client";
-import { Prisma } from "@prisma/client";
-import bcrypt from "bcryptjs";
 import type { User } from "@prisma/client";
 
 type GoogleOAuthProfile = {
@@ -24,54 +21,6 @@ type GoogleOAuthProfile = {
   googleId: string;
   userImage: string | null;
 };
-
-/** Create OAuth user with unique username; recover from P2002 race / username collision */
-async function createGoogleOAuthUser(
-  profile: GoogleOAuthProfile,
-): Promise<User> {
-  const { email, name, googleId, userImage } = profile;
-  const randomPassword = Buffer.from(Math.random().toString(36)).toString(
-    "base64",
-  );
-  const hashedPassword = await bcrypt.hash(randomPassword, 10);
-  const username = await generateUniqueUsername(
-    email.split("@")[0] || name || "user",
-  );
-
-  const displayName = name?.trim() || email.split("@")[0] || "user";
-
-  const createData = {
-    email,
-    name: displayName,
-    password: hashedPassword,
-    googleId,
-    image: userImage,
-    role: "admin",
-    username,
-    createdAt: new Date(),
-  };
-
-  try {
-    return await prisma.user.create({ data: createData });
-  } catch (error) {
-    if (
-      error instanceof Prisma.PrismaClientKnownRequestError &&
-      error.code === "P2002"
-    ) {
-      const existing = await prisma.user.findUnique({ where: { email } });
-      if (existing) {
-        return existing;
-      }
-      const retryUsername = await generateUniqueUsername(
-        `${username}${Date.now().toString(36).slice(-4)}`,
-      );
-      return await prisma.user.create({
-        data: { ...createData, username: retryUsername },
-      });
-    }
-    throw error;
-  }
-}
 
 /** Merge Google profile into an existing user when fields are missing */
 async function updateGoogleOAuthUser(
@@ -96,7 +45,7 @@ async function updateGoogleOAuthUser(
     updateData.name = name;
   }
   if (!user.role || (typeof user.role === "string" && user.role.trim() === "")) {
-    updateData.role = "admin";
+    updateData.role = "VIEWER";
   }
 
   if (Object.keys(updateData).length === 0) {
@@ -233,13 +182,10 @@ export async function GET(request: NextRequest) {
         userImage,
       };
 
-      if (!user) {
-        user = await createGoogleOAuthUser(profile);
-        logger.info(`New user created via Google OAuth: ${email}`);
-    await scheduleInvalidateAuthCaches();
-      } else {
-        user = await updateGoogleOAuthUser(user, profile);
+      if (!user || !isAccountAccessAllowed(user) || googleUser.verified_email !== true || (user.googleId && user.googleId !== googleId)) {
+        return NextResponse.redirect(new URL("/login?error=account_not_authorized", request.url));
       }
+      user = await updateGoogleOAuthUser(user, profile);
 
       if (!user.id) {
         logger.error("User data corrupted: id missing");
@@ -249,7 +195,7 @@ export async function GET(request: NextRequest) {
       }
 
       // Generate JWT token
-      const token = generateToken(user.id);
+      const token = generateToken(user.id, user.sessionVersion ?? 0);
       if (!token) {
         logger.error("Failed to generate token");
         return NextResponse.redirect(

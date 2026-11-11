@@ -20,13 +20,17 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { DataSlotPulse } from "@/components/shared/DataSlotPulse";
 
 export default function BuildStockOperationsDashboard() {
+  // The browser may restore cached queries before hydration. Render the same
+  // placeholders as the server until the first client effect has completed.
+  const [hydrated, setHydrated] = React.useState(false);
+  React.useEffect(() => { setHydrated(true); }, []);
   // Fetch dashboard summary metrics
-  const { data: stats, isLoading: statsLoading } = useQuery({
+  const { data: stats, isLoading: statsPending } = useQuery({
     queryKey: ["buildstock-dashboard-stats"],
     queryFn: async () => {
-      const res = await fetch("/api/insights/dashboard");
-      if (!res.ok) {
-        // Fallback fetch from core entities
+      // Use existing scoped APIs; no speculative summary endpoint.
+      {
+        // Fetch from core entities
         const [whRes, prodRes, poRes] = await Promise.all([
           fetch("/api/warehouses"),
           fetch("/api/products"),
@@ -55,15 +59,14 @@ export default function BuildStockOperationsDashboard() {
           recentPOs: pos.slice(0, 5) || [],
         };
       }
-      return res.json();
     },
   });
 
   // Fetch recent stock movements
-  const { data: movements, isLoading: movementsLoading } = useQuery({
+  const { data: movements, isLoading: movementsPending } = useQuery({
     queryKey: ["buildstock-recent-movements"],
     queryFn: async () => {
-      const res = await fetch("/api/inventory/movements?limit=6");
+      const res = await fetch("/api/stock-movements?limit=6");
       if (!res.ok) return [];
       const json = await res.json();
       return Array.isArray(json) ? json.slice(0, 6) : (json.data || []).slice(0, 6);
@@ -89,6 +92,10 @@ export default function BuildStockOperationsDashboard() {
     },
   });
 
+  if (!hydrated) return <div className="space-y-6 p-6" aria-busy="true"><DataSlotPulse variant="metric" /></div>;
+
+  const statsLoading = statsPending;
+  const movementsLoading = !hydrated || movementsPending;
   return (
     <div className="space-y-6 p-6">
       <div>
@@ -258,7 +265,7 @@ export default function BuildStockOperationsDashboard() {
               <CardTitle className="text-base font-semibold">Recent Stock Movements</CardTitle>
               <p className="text-xs text-muted-foreground">Latest inventory transactions</p>
             </div>
-            <Link href="/inventory/movements" className="text-xs font-medium text-sky-600 hover:underline">
+            <Link href="/inventory/reports" className="text-xs font-medium text-sky-600 hover:underline">
               View All →
             </Link>
           </CardHeader>

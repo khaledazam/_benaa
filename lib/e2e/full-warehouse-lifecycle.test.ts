@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 // Mock Fixtures
-const mockUser = { id: "user-admin", name: "Admin", username: "admin", role: "SUPER_ADMIN" };
+const mockUser = { id: "user-admin", name: "Admin", username: "admin", role: "SUPER_ADMIN", status: true, warehouseIds: ["wh-main"] };
 const mockWarehouse = { id: "wh-main", name: "Main Warehouse", code: "WH-MAIN" };
 const mockSupplier = { id: "sup-1", name: "BuildCorp Supplies" };
 const mockCustomer = { id: "cust-1", name: "Al-Benaa Construction LLC" };
@@ -29,7 +29,13 @@ let dbProducts: any[] = [];
 
 vi.mock("@/prisma/client", () => {
   const mockTx = {
+    // Explicit fixture tables for the authoritative availability/unit contract.
+    unit: { findUnique: vi.fn(async ({ where }: any) => [{ id: "unit-m2", active: true, type: "area" }].find(u => u.id === where.id) || null) },
+    projectMaterialIssueItem: { findMany: vi.fn(async () => []) },
+    stockReservationItem: { findMany: vi.fn(async () => []) },
+
     user: {
+      update: vi.fn(async ({ data }: any) => Object.assign(mockUser, data)),
       findUnique: vi.fn(async () => mockUser),
     },
     warehouse: {
@@ -53,7 +59,7 @@ vi.mock("@/prisma/client", () => {
         let sa = dbStockAllocations.find((a) => a.productId === where.productId_warehouseId.productId);
         if (sa) Object.assign(sa, update);
         else {
-          sa = { id: "sa-1", ...create };
+          sa = { id: "sa-1", reservedQuantity: 0, ...create };
           dbStockAllocations.push(sa);
         }
         return sa;
@@ -65,13 +71,15 @@ vi.mock("@/prisma/client", () => {
       }),
     },
     stockLocationAllocation: {
+      count: vi.fn(async ({ where }: any) => dbStockLocationAllocations.filter(a =>
+        (!where.productId || a.productId === where.productId) && (!where.warehouseId || a.warehouseId === where.warehouseId)).length),
       findMany: vi.fn(async () => dbStockLocationAllocations.map((sla) => ({ ...sla, product: mockProductTiles, bin: mockBin }))),
       findUnique: vi.fn(async ({ where }: any) => dbStockLocationAllocations.find((a) => a.productId === where.productId_binId?.productId) || null),
       upsert: vi.fn(async ({ where, create, update }: any) => {
         let sla = dbStockLocationAllocations.find((a) => a.productId === where.productId_binId.productId);
         if (sla) Object.assign(sla, update);
         else {
-          sla = { id: "sla-1", ...create };
+          sla = { id: "sla-1", reservedQuantity: 0, ...create };
           dbStockLocationAllocations.push(sla);
         }
         return sla;
@@ -161,7 +169,16 @@ vi.mock("@/prisma/client", () => {
   return {
     prisma: {
       ...mockTx,
-      $transaction: vi.fn(async (cb: any) => cb(mockTx)),
+      $transaction: vi.fn(async (cb: any) => {
+        const snapshot = structuredClone({ dbStockAllocations, dbStockLocationAllocations, dbStockMovements, dbAdjustments, dbAdjustmentItems, dbCounts, dbCountItems, dbProducts, actor: mockUser });
+        try { return await cb(mockTx); }
+        catch (error) {
+          ({ dbStockAllocations, dbStockLocationAllocations, dbStockMovements, dbAdjustments, dbAdjustmentItems, dbCounts, dbCountItems, dbProducts } = snapshot);
+          for (const key of Object.keys(mockUser)) if (!(key in snapshot.actor)) delete (mockUser as any)[key];
+          Object.assign(mockUser, snapshot.actor);
+          throw error;
+        }
+      }),
     },
   };
 });

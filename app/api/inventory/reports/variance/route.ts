@@ -1,16 +1,18 @@
+import { withWarehouseScope } from "@/lib/auth/warehouse-route-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth-server";
 import { mapSessionToAppUser } from "@/lib/auth/map-session-user";
 import { hasPermission, BuildStockPermissions } from "@/lib/auth/permissions";
 import { getInventoryVarianceReport, getAdjustmentHistoryReport, getDamageAndLossReport } from "@/lib/inventory/reportingService";
 
-export async function GET(req: NextRequest) {
+async function scopedGET(req: NextRequest) {
   try {
     const session = await getSession();
+    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const user = session ? mapSessionToAppUser(session) : null;
     const role = user?.role || "VIEWER";
 
-    if (!hasPermission(role, BuildStockPermissions.REPORT_VIEW)) {
+    if (!hasPermission(user, BuildStockPermissions.REPORT_VIEW)) {
       return NextResponse.json({ error: "Forbidden — REPORT_VIEW permission required" }, { status: 403 });
     }
 
@@ -39,3 +41,5 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: error.message || "Failed to fetch variance report" }, { status: 500 });
   }
 }
+
+export const GET = withWarehouseScope(scopedGET);

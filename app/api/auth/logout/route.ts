@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createCorsHeaders, handleCorsPreflight } from "@/lib/api/cors";
 import { logger } from "@/lib/logger";
+import { revokePresentedSession } from '@/utils/auth';
 
 /**
  * POST /api/auth/logout
@@ -14,6 +15,7 @@ import { logger } from "@/lib/logger";
  */
 export async function POST(request: NextRequest) {
   try {
+    await revokePresentedSession(request);
     // Handle CORS
     const responseHeaders = createCorsHeaders(request);
 

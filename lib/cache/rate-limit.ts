@@ -4,7 +4,8 @@
  */
 
 import { getRedis } from "./redis";
-import { logger } from "@/lib/logger";
+import { prisma } from '@/prisma/client';
+import { checkMongoRateLimit } from './mongo-rate-limit';
 
 /**
  * Rate limit configuration
@@ -55,66 +56,32 @@ export interface RateLimitResult {
 export async function checkRateLimit(
   config: RateLimitConfig
 ): Promise<RateLimitResult> {
+  if (process.env.BENAA_RATE_LIMIT_BACKEND === 'mongodb') return checkMongoRateLimit(prisma,config);
   const redis = getRedis();
   if (!redis) {
-    // Graceful degradation: allow all requests if Redis not available
-    logger.warn("Redis not available, rate limiting disabled");
-    return {
-      allowed: true,
-      current: 0,
-      limit: config.limit,
-      reset: config.window,
-    };
+    if (process.env.NODE_ENV === 'production') throw new Error('RATE_LIMIT_UNAVAILABLE');
+    return { allowed: true, current: 0, limit: config.limit, reset: config.window };
   }
-
+  // Admission, count and expiry are one Redis operation across all processes.
+  const script = `
+    local key, now, window, limit, member = KEYS[1], tonumber(ARGV[1]), tonumber(ARGV[2]), tonumber(ARGV[3]), ARGV[4]
+    redis.call('ZREMRANGEBYSCORE', key, '-inf', now-window)
+    local count = redis.call('ZCARD', key)
+    if count >= limit then return {0, count, math.ceil(window/1000)} end
+    redis.call('ZADD', key, now, member)
+    redis.call('PEXPIRE', key, window)
+    return {1, count+1, math.ceil(window/1000)}
+  `;
   try {
-    const key = `rate-limit:${config.identifier}`;
-    const now = Date.now();
-    const windowStart = now - config.window * 1000;
-
-    // Use sorted set for sliding window
-    // Remove old entries outside the window
-    await redis.zremrangebyscore(key, 0, windowStart);
-
-    // Count current entries in the window
-    const current = await redis.zcard(key);
-
-    if (current >= config.limit) {
-      // Rate limit exceeded
-      const oldestEntry = await redis.zrange(key, 0, 0, {
-        withScores: true,
-      }) as Array<{ member: string; score: number }>;
-      const resetTime = oldestEntry.length > 0 && oldestEntry[0]
-        ? Math.ceil((oldestEntry[0].score + config.window * 1000 - now) / 1000)
-        : config.window;
-
-      return {
-        allowed: false,
-        current,
-        limit: config.limit,
-        reset: Math.max(0, resetTime),
-      };
+    const value = await redis.eval(script, [`rate-limit:${config.identifier}`],
+      [Date.now(), config.window * 1000, config.limit, crypto.randomUUID()]);
+    if (!Array.isArray(value) || value.length !== 3 || !value.every(Number.isFinite) ||
+        ![0, 1].includes(value[0]) || value[1] < 0 || value[2] < 0) {
+      throw new Error('Invalid limiter response');
     }
-
-    // Add current request to the window
-    await redis.zadd(key, { score: now, member: `${now}-${Math.random()}` });
-    // Set expiration for the key (cleanup after window expires)
-    await redis.expire(key, config.window);
-
-    return {
-      allowed: true,
-      current: current + 1,
-      limit: config.limit,
-      reset: config.window,
-    };
-  } catch (error) {
-    logger.error("Rate limit check failed:", error);
-    // Graceful degradation: allow request on error
-    return {
-      allowed: true,
-      current: 0,
-      limit: config.limit,
-      reset: config.window,
-    };
+    return { allowed: value[0] === 1, current: value[1], limit: config.limit, reset: value[2] };
+  } catch {
+    if (process.env.NODE_ENV === 'production') throw new Error('RATE_LIMIT_UNAVAILABLE');
+    return { allowed: true, current: 0, limit: config.limit, reset: config.window };
   }
 }

@@ -19,7 +19,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { useMemo } from "react";
-import { getDisplayCommittedQuantity } from "@/lib/products/enrich-product-committed-quantity";
+import { getDisplayCommittedQuantity } from "@/lib/products/committed-quantity-display";
 
 /** Resolve product.category to a display name (string | {name} | null). */
 function resolveCategoryName(product: Product): string | null {

@@ -1,0 +1,10 @@
+const fs=require('node:fs'),net=require('node:net'),path=require('node:path');
+const {parseEnv}=require('node:util');
+const file=process.env.BENAA_WINDOWS_CONFIG;
+if(!file || !path.isAbsolute(file))throw new Error('Absolute configuration path required');
+const env=parseEnv(fs.readFileSync(file,'utf8'));
+const socket=net.connect('\\\\.\\pipe\\BENAA-ERP-'+Number(env.PORT || 3217));
+socket.setTimeout(5000,() => {socket.destroy();process.exitCode=1;});
+socket.on('connect',() => socket.write(env.BENAA_SHUTDOWN_TOKEN+'\n'));
+socket.on('data',data => {if(data.toString().trim()!=='accepted')process.exitCode=1;socket.end();});
+socket.on('error',() => {process.stderr.write('Service stop could not be confirmed\n');process.exitCode=1;});

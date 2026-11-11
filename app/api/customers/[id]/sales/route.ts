@@ -7,10 +7,11 @@ import { getCustomerSalesStats } from "@/lib/customers/customerService";
 export async function GET(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const session = await getSession();
+    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const user = session ? mapSessionToAppUser(session) : null;
     const role = user?.role || "VIEWER";
 
-    if (!hasPermission(role, BuildStockPermissions.CUSTOMER_VIEW)) {
+    if (!hasPermission(user, BuildStockPermissions.CUSTOMER_VIEW)) {
       return NextResponse.json({ error: "Unauthorized access" }, { status: 403 });
     }
 

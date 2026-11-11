@@ -1,3 +1,4 @@
+import { withWarehouseScope } from "@/lib/auth/warehouse-route-scope";
 /**
  * Stock Allocations API Route Handler
  * GET /api/stock-allocations — list stock allocations
@@ -42,7 +43,7 @@ function transform(
  *   ?productId=xxx for stock in specific product
  *   ?warehouseId=xxx for stock in specific warehouse
  */
-export async function GET(request: NextRequest) {
+async function scopedGET(request: NextRequest) {
   try {
     const rateLimitResponse = await withRateLimit(
       request,
@@ -172,7 +173,7 @@ export async function GET(request: NextRequest) {
  * POST /api/stock-allocations
  * Create or update stock allocation
  */
-export async function POST(request: NextRequest) {
+async function scopedPOST(request: NextRequest) {
   try {
     const rateLimitResponse = await withRateLimit(
       request,
@@ -189,10 +190,10 @@ export async function POST(request: NextRequest) {
     const validation = createStockAllocationSchema.safeParse(body);
     if (!validation.success) {
       logger.warn("Invalid stock allocation data", {
-        errors: validation.error.errors,
+        errors: validation.error.issues,
       });
       return NextResponse.json(
-        { error: "Invalid request body", details: validation.error.errors },
+        { error: "Invalid request body", details: validation.error.issues },
         { status: 400 },
       );
     }
@@ -271,3 +272,6 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+export const GET = withWarehouseScope(scopedGET);
+export const POST = withWarehouseScope(scopedPOST);

@@ -1,9 +1,10 @@
+import { withWarehouseScope } from "@/lib/auth/warehouse-route-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/requireRole";
 import { prisma } from "@/prisma/client";
 import { BuildStockPermissions } from "@/lib/auth/permissions";
 
-export async function GET(
+async function scopedGET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -29,3 +30,4 @@ export async function GET(
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
+export const GET = withWarehouseScope(scopedGET);

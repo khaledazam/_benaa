@@ -1,5 +1,7 @@
+import { stockUnits, STOCK_SCALE } from "@/lib/inventory/quantity";
+import { inventoryTransaction } from "@/lib/inventory/transaction";
 import { prisma } from "@/prisma/client";
-import { executeStockMutation, StockMovementTypes } from "@/lib/inventory/stockService";
+import { BATCH_MANAGED_IN_TX, executeStockMutationInTx, StockMovementTypes } from "@/lib/inventory/stockService";
 import { createOrUpdateBatchOnReceiptInTx } from "@/lib/inventory/batchService";
 import { convertUnitQuantity } from "@/lib/units/unitService";
 
@@ -220,22 +222,24 @@ export async function createGoodsReceiptDraft(input: CreateGoodsReceiptInput) {
 
   const poItemMap = new Map(po.items.map((item) => [item.id, item]));
   const preparedItems = [];
+  const receiptTotals = new Map<string, number>();
+  if (!items.length) throw new Error("A receipt requires at least one item");
 
   for (const rItem of items) {
     const poItem = poItemMap.get(rItem.purchaseOrderItemId);
     if (!poItem) {
       throw new Error(`Purchase order line item not found: ${rItem.purchaseOrderItemId}`);
     }
-    if (rItem.receivedQuantity <= 0) {
+    if (!Number.isFinite(rItem.receivedQuantity) || rItem.receivedQuantity <= 0) {
       throw new Error(`Received quantity must be greater than 0 for item ${poItem.productName}`);
     }
 
-    // OVER-RECEIVING PREVENTION CHECK
-    if (rItem.receivedQuantity > poItem.remainingQuantity) {
-      throw new Error(
-        `Over-receiving rejected for ${poItem.productName}. Attempted: ${rItem.receivedQuantity}, Remaining allowed: ${poItem.remainingQuantity}`
-      );
-    }
+    if (rItem.productId !== poItem.productId) throw new Error("Receipt product does not match purchase order line");
+    const quantityInPOUnit = await convertUnitQuantity({ quantity: rItem.receivedQuantity,
+      fromUnitId: rItem.unitId || poItem.unitId, toUnitId: poItem.unitId, productId: poItem.productId });
+    const lineTotal = (stockUnits(receiptTotals.get(poItem.id) || 0) + stockUnits(quantityInPOUnit)) / STOCK_SCALE;
+    if (lineTotal > poItem.remainingQuantity) throw new Error("Over-receiving rejected");
+    receiptTotals.set(poItem.id, lineTotal);
 
     // Validate destination bin if provided
     if (rItem.destinationBinId) {
@@ -312,152 +316,63 @@ export async function createGoodsReceiptDraft(input: CreateGoodsReceiptInput) {
  * Updates warehouse stock, creates PURCHASE StockMovements, updates PO item received & remaining quantities, updates PO status to PARTIALLY_RECEIVED or FULLY_RECEIVED, marks receipt POSTED.
  */
 export async function postGoodsReceipt(receiptId: string, userId: string) {
-  const receipt = await prisma.goodsReceipt.findUnique({
-    where: { id: receiptId },
-    include: {
-      items: true,
-      purchaseOrder: {
-        include: { items: true },
-      },
-    },
-  });
-
-  if (!receipt) throw new Error("Goods Receipt not found");
-
-  if (receipt.status !== GRNStatus.DRAFT) {
-    throw new Error(`Goods Receipt is in status ${receipt.status}. Only DRAFT receipts can be posted.`);
-  }
-
-  // ATOMIC CONCURRENCY GUARD: Update status to POSTED conditionally
-  const atomicLock = await prisma.goodsReceipt.updateMany({
-    where: {
-      id: receiptId,
-      status: GRNStatus.DRAFT,
-    },
-    data: {
-      status: GRNStatus.POSTED,
-      postedAt: new Date(),
-      updatedAt: new Date(),
-    },
-  });
-
-  if (atomicLock.count === 0) {
-    throw new Error("Goods Receipt has already been posted or is no longer in DRAFT status.");
-  }
-
-  const po = receipt.purchaseOrder;
-  if (!po) throw new Error("Linked Purchase Order not found");
-
-  if (po.status !== POStatus.APPROVED && po.status !== POStatus.PARTIALLY_RECEIVED) {
-    throw new Error(`Cannot post receipt for PO in status ${po.status}. Must be APPROVED or PARTIALLY_RECEIVED.`);
-  }
-
-  const poItemMap = new Map(po.items.map((item) => [item.id, item]));
-
-  for (const rItem of receipt.items) {
-    const poItem = poItemMap.get(rItem.purchaseOrderItemId);
-    if (!poItem) {
-      throw new Error(`Purchase order line item not found: ${rItem.purchaseOrderItemId}`);
+  return inventoryTransaction(prisma, async (tx) => {
+    const receipt = await tx.goodsReceipt.findUnique({ where: { id: receiptId }, include: {
+      items: true, purchaseOrder: { include: { items: true } },
+    } });
+    if (!receipt) throw new Error("Goods Receipt not found");
+    // Receipt identity is the idempotency key: retry cannot create another posting.
+    if (receipt.status === GRNStatus.POSTED) return { goodsReceipt: receipt, purchaseOrderStatus: receipt.purchaseOrder.status };
+    if (receipt.status !== GRNStatus.DRAFT) throw new Error("Only DRAFT receipts can be posted");
+    const po = receipt.purchaseOrder;
+    if (!po || ![POStatus.APPROVED, POStatus.PARTIALLY_RECEIVED].includes(po.status)) throw new Error("Purchase order is not open for receipt");
+    if (receipt.warehouseId !== po.warehouseId || receipt.supplierId !== po.supplierId) throw new Error("Receipt does not match purchase order");
+    if (!receipt.items.length) throw new Error("A receipt requires at least one item");
+    const totals = new Map<string, number>();
+    const prepared = [];
+    for (const item of receipt.items) {
+      const line = po.items.find((l: any) => l.id === item.purchaseOrderItemId);
+      if (!line || line.productId !== item.productId) throw new Error("Receipt product does not match purchase order line");
+      const product = await tx.product.findUnique({ where: { id: item.productId } });
+      if (!product) throw new Error("Receipt product not found");
+      const unitId = item.unitId || line.unitId;
+      const poQuantity = await convertUnitQuantity({ quantity: item.receivedQuantity, fromUnitId: unitId, toUnitId: line.unitId, productId: product.id }, tx);
+      const baseQuantity = await convertUnitQuantity({ quantity: item.receivedQuantity, fromUnitId: unitId, toUnitId: product.unitId, productId: product.id }, tx);
+      const total = (stockUnits(totals.get(line.id) || 0) + stockUnits(poQuantity)) / STOCK_SCALE;
+      if (!Number.isFinite(line.remainingQuantity) || !Number.isFinite(line.receivedQuantity) || !Number.isFinite(line.orderedQuantity) || line.receivedQuantity < 0 || line.remainingQuantity < 0 || total > line.remainingQuantity || stockUnits(total) + stockUnits(line.receivedQuantity) > stockUnits(line.orderedQuantity)) throw new Error("Over-receiving or inconsistent PO quantities");
+      totals.set(line.id, total);
+      prepared.push({ item, product, unitId, baseQuantity });
     }
-
-    // Double check over-receiving against current remaining quantity
-    if (rItem.receivedQuantity > poItem.remainingQuantity) {
-      throw new Error(
-        `Over-receiving rejected for ${poItem.productName}. Attempted: ${rItem.receivedQuantity}, Remaining allowed: ${poItem.remainingQuantity}`
-      );
+    const locked = await tx.goodsReceipt.updateMany({ where: { id: receiptId, status: GRNStatus.DRAFT }, data: { status: GRNStatus.POSTED, postedAt: new Date(), updatedAt: new Date() } });
+    if (locked.count !== 1) throw new Error("Receipt state changed concurrently");
+    for (const { item, product, unitId, baseQuantity } of prepared) {
+      // This transaction owns the batch receipt; the central service validates its
+      // identity while the unforgeable internal symbol prevents a second increment.
+      const batch = ["BATCH", "LOT", "HEAT"].includes(product.trackingMode)
+        ? await createOrUpdateBatchOnReceiptInTx(tx, { productId: product.id, warehouseId: receipt.warehouseId,
+          supplierId: receipt.supplierId, goodsReceiptId: receipt.id, batchNumber: "BAT-" + receipt.receiptNumber.replace("GRN-", ""),
+          quantity: baseQuantity, notes: "Received via Goods Receipt " + receipt.receiptNumber })
+        : null;
+      await executeStockMutationInTx(tx, { productId: item.productId, warehouseId: receipt.warehouseId,
+        destinationBinId: item.destinationBinId, quantity: item.receivedQuantity, unitId,
+        batchId: batch?.id, batchAccounting: batch ? BATCH_MANAGED_IN_TX : undefined,
+        movementType: StockMovementTypes.PURCHASE, referenceType: "GoodsReceipt", referenceId: receipt.id,
+        reason: "Goods receipt " + receipt.receiptNumber + " for PO " + po.purchaseOrderNumber, performedBy: userId });
+      await tx.goodsReceiptItem.update({ where: { id: item.id }, data: { quantityInBaseUnit: baseQuantity } });
     }
-
-    // Execute Stock Movement (PURCHASE) & StockAllocation Update via Central Stock Service
-    const mutationRes = await executeStockMutation({
-      productId: rItem.productId,
-      warehouseId: receipt.warehouseId,
-      destinationBinId: rItem.destinationBinId,
-      quantity: rItem.receivedQuantity,
-      unitId: rItem.unitId || poItem.unitId,
-      movementType: StockMovementTypes.PURCHASE,
-      referenceType: "GoodsReceipt",
-      referenceId: receipt.id,
-      reason: `Goods receipt ${receipt.receiptNumber} for PO ${po.purchaseOrderNumber}`,
-      performedBy: userId,
-    });
-
-    // Check if Product is Batch / Lot / Heat Tracked
-    const prod = await prisma.product.findUnique({ where: { id: rItem.productId }, select: { trackingMode: true } });
-    if (prod && prod.trackingMode && prod.trackingMode !== "NONE") {
-      const batchNumber = `BAT-${receipt.receiptNumber.replace("GRN-", "")}`;
-      const batchRecord = await createOrUpdateBatchOnReceiptInTx(prisma, {
-        productId: rItem.productId,
-        warehouseId: receipt.warehouseId,
-        supplierId: receipt.supplierId,
-        goodsReceiptId: receipt.id,
-        batchNumber,
-        quantity: rItem.receivedQuantity,
-        notes: `Received via Goods Receipt ${receipt.receiptNumber}`,
-      });
-
-      if (mutationRes?.movementId && batchRecord?.id) {
-        await prisma.stockMovement.update({
-          where: { id: mutationRes.movementId },
-          data: { batchId: batchRecord.id, batchNumber: batchRecord.batchNumber },
-        });
-      }
+    for (const line of po.items) {
+      const quantity = totals.get(line.id);
+      if (quantity === undefined) continue;
+      const receivedQuantity = (stockUnits(line.receivedQuantity) + stockUnits(quantity)) / STOCK_SCALE;
+      await tx.purchaseOrderItem.update({ where: { id: line.id }, data: { receivedQuantity, remainingQuantity: (stockUnits(line.orderedQuantity) - stockUnits(receivedQuantity)) / STOCK_SCALE } });
     }
-
-    // Update PO Line Item quantities
-    const newReceivedQty = poItem.receivedQuantity + rItem.receivedQuantity;
-    const newRemainingQty = Math.max(0, poItem.orderedQuantity - newReceivedQty);
-
-    await prisma.purchaseOrderItem.update({
-      where: { id: poItem.id },
-      data: {
-        receivedQuantity: newReceivedQty,
-        remainingQuantity: newRemainingQty,
-      },
-    });
-  }
-
-  // Update PO overall status based on remaining line item quantities
-  const updatedPoItems = await prisma.purchaseOrderItem.findMany({
-    where: { purchaseOrderId: po.id },
+    const updatedLines = await tx.purchaseOrderItem.findMany({ where: { purchaseOrderId: po.id } });
+    const status = updatedLines.every((l: any) => l.remainingQuantity === 0) ? POStatus.FULLY_RECEIVED : POStatus.PARTIALLY_RECEIVED;
+    await tx.purchaseOrder.update({ where: { id: po.id }, data: { status, updatedAt: new Date() } });
+    await tx.auditLog.create({ data: { userId, action: "goods_receipt_posted", entityType: "GoodsReceipt", entityId: receipt.id,
+      details: { receiptNumber: receipt.receiptNumber, purchaseOrderId: po.id, poNumber: po.purchaseOrderNumber, newPoStatus: status, itemCount: receipt.items.length } } });
+    return { goodsReceipt: await tx.goodsReceipt.findUnique({ where: { id: receiptId }, include: { items: true } }), purchaseOrderStatus: status };
   });
-
-  const totalRemaining = updatedPoItems.reduce((acc, item) => acc + item.remainingQuantity, 0);
-  const newPoStatus = totalRemaining === 0 ? POStatus.FULLY_RECEIVED : POStatus.PARTIALLY_RECEIVED;
-
-  await prisma.purchaseOrder.update({
-    where: { id: po.id },
-    data: {
-      status: newPoStatus,
-      updatedAt: new Date(),
-    },
-  });
-
-  const postedReceipt = await prisma.goodsReceipt.findUnique({
-    where: { id: receiptId },
-    include: { items: true },
-  });
-
-  // Record Audit Log for Posting
-  await prisma.auditLog.create({
-    data: {
-      userId,
-      action: "goods_receipt_posted",
-      entityType: "GoodsReceipt",
-      entityId: receipt.id,
-      details: {
-        receiptNumber: receipt.receiptNumber,
-        purchaseOrderId: po.id,
-        poNumber: po.purchaseOrderNumber,
-        newPoStatus,
-        itemCount: receipt.items.length,
-      },
-    },
-  });
-
-  return {
-    goodsReceipt: postedReceipt!,
-    purchaseOrderStatus: newPoStatus,
-  };
 }
 
 /**

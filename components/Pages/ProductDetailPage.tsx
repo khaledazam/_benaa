@@ -84,7 +84,7 @@ import { toDateOrNull } from "@/lib/format";
 import {
   computeCommittedQuantity,
   getDisplayCommittedQuantity,
-} from "@/lib/products/enrich-product-committed-quantity";
+} from "@/lib/products/committed-quantity-display";
 import {
   buildSalesChartData,
   buildWarehouseAllocationStockChartData,

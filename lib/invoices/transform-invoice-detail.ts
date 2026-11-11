@@ -35,6 +35,8 @@ type InvoiceRaw = {
 };
 
 export type InvoiceDetailEnrichment = {
+  erpSalesOrderId?: string | null;
+  customerId?: string | null;
   invoiceCreatedBy: { name: string | null; email: string } | null;
   orderedBy: { name: string | null; email: string } | null;
   client: { name: string | null; email: string } | null;
@@ -63,6 +65,8 @@ export function transformInvoiceDetail(
 ): Invoice {
   return {
     id: invoice.id,
+    erpSalesOrderId: enrichment.erpSalesOrderId,
+    customerId: enrichment.customerId,
     invoiceNumber: invoice.invoiceNumber,
     orderId: invoice.orderId,
     userId: invoice.userId,

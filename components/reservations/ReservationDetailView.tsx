@@ -75,8 +75,8 @@ export default function ReservationDetailView({ reservationId }: { reservationId
   if (isLoading) return <div className="p-8 text-center text-xs text-muted-foreground">Loading reservation details...</div>;
   if (error || !reservation) return <div className="p-8 text-center text-xs text-destructive">Failed to load reservation.</div>;
 
-  const canRelease = hasPermission(userRole, BuildStockPermissions.RESERVATION_RELEASE) && ["ACTIVE", "PARTIALLY_FULFILLED"].includes(reservation.status);
-  const canCancel = hasPermission(userRole, BuildStockPermissions.RESERVATION_CANCEL) && ["ACTIVE", "PARTIALLY_FULFILLED"].includes(reservation.status);
+  const canRelease = hasPermission(user, BuildStockPermissions.RESERVATION_RELEASE) && ["ACTIVE", "PARTIALLY_FULFILLED"].includes(reservation.status);
+  const canCancel = hasPermission(user, BuildStockPermissions.RESERVATION_CANCEL) && ["ACTIVE", "PARTIALLY_FULFILLED"].includes(reservation.status);
 
   const getStatusBadge = (status: string) => {
     switch (status) {

@@ -29,7 +29,7 @@ import {
   GLASS_BUTTON_ICON_HOVER,
   GLASS_BUTTON_SHELL_RESET,
 } from "@/lib/ui/glass-button-styles";
-import { getDisplayCommittedQuantity } from "@/lib/products/enrich-product-committed-quantity";
+import { getDisplayCommittedQuantity } from "@/lib/products/committed-quantity-display";
 import { useSupplierPortal } from "@/hooks/queries";
 import {
   isDataSlotUnsettled,

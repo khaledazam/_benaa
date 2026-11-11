@@ -1,3 +1,7 @@
+import { authorizeInventoryPosting } from "./postingAuthorization";
+import { addStock, stockUnits, STOCK_SCALE } from "./quantity";
+import { convertUnitQuantity } from "@/lib/units/unitService";
+import { inventoryTransaction } from "./transaction";
 import { prisma } from "@/prisma/client";
 import { executeStockMutationInTx, StockMovementTypes } from "@/lib/inventory/stockService";
 import { CreateAdjustmentInput } from "@/lib/validations/adjustment-validations";
@@ -6,11 +10,11 @@ export function roundQty(val: number): number {
   return Math.round((val + Number.EPSILON) * 100) / 100;
 }
 
-export async function generateAdjustmentNumber(): Promise<string> {
+export async function generateAdjustmentNumber(db: any = prisma): Promise<string> {
   const year = new Date().getFullYear();
   const prefix = `ADJ-${year}-`;
 
-  const last = await prisma.stockAdjustment.findFirst({
+  const last = await db.stockAdjustment.findFirst({
     where: { adjustmentNumber: { startsWith: prefix } },
     orderBy: { adjustmentNumber: "desc" },
     select: { adjustmentNumber: true },
@@ -27,24 +31,24 @@ export async function generateAdjustmentNumber(): Promise<string> {
   return `${prefix}${seq.toString().padStart(6, "0")}`;
 }
 
-export async function createAdjustment(data: CreateAdjustmentInput, userId: string) {
-  const warehouse = await prisma.warehouse.findUnique({
+export async function createAdjustment(data: CreateAdjustmentInput, userId: string, db: any = prisma) {
+  const warehouse = await db.warehouse.findUnique({
     where: { id: data.warehouseId },
   });
   if (!warehouse) throw new Error("Warehouse not found");
 
-  const adjustmentNumber = await generateAdjustmentNumber();
+  const adjustmentNumber = await generateAdjustmentNumber(db);
   const itemCreations = [];
 
   for (const item of data.items) {
-    const product = await prisma.product.findUnique({
+    const product = await db.product.findUnique({
       where: { id: item.productId },
     });
     if (!product) throw new Error(`Product with ID '${item.productId}' not found`);
 
     let binLocationPath: string | null = null;
     if (item.binId) {
-      const bin = await prisma.warehouseBin.findUnique({
+      const bin = await db.warehouseBin.findUnique({
         where: { id: item.binId },
       });
       if (!bin) throw new Error(`Bin with ID '${item.binId}' not found`);
@@ -59,19 +63,24 @@ export async function createAdjustment(data: CreateAdjustmentInput, userId: stri
 
     let sysQty = 0;
     if (item.binId) {
-      const sla = await prisma.stockLocationAllocation.findUnique({
+      const sla = await db.stockLocationAllocation.findUnique({
         where: { productId_binId: { productId: item.productId, binId: item.binId } },
       });
       sysQty = sla?.quantity ?? 0;
     } else {
-      const sa = await prisma.stockAllocation.findUnique({
+      const sa = await db.stockAllocation.findUnique({
         where: { productId_warehouseId: { productId: item.productId, warehouseId: data.warehouseId } },
       });
       sysQty = sa?.quantity ?? 0;
     }
 
-    const adjQty = roundQty(item.adjustmentQuantity);
-    const resultingQty = roundQty(sysQty + adjQty);
+    stockUnits(item.adjustmentQuantity);
+    const magnitude = item.adjustmentQuantity === 0 ? 0 : await convertUnitQuantity({
+      quantity: Math.abs(item.adjustmentQuantity), fromUnitId: item.unitId || product.unitId,
+      toUnitId: product.unitId, productId: product.id,
+    }, db);
+    const adjQty = stockUnits(magnitude) / STOCK_SCALE * Math.sign(item.adjustmentQuantity);
+    const resultingQty = addStock(sysQty, adjQty);
     if (resultingQty < 0) {
       throw new Error(`Adjustment resulting quantity cannot be negative for product '${product.name}'`);
     }
@@ -83,9 +92,9 @@ export async function createAdjustment(data: CreateAdjustmentInput, userId: stri
       warehouseId: data.warehouseId,
       binId: item.binId || null,
       locationPath: binLocationPath,
-      unitId: item.unitId || product.unitId || null,
+      unitId: product.unitId || null,
       unitSymbol: item.unitSymbol || null,
-      systemQuantity: roundQty(sysQty),
+      systemQuantity: stockUnits(sysQty) / STOCK_SCALE,
       adjustmentQuantity: adjQty,
       resultingQuantity: resultingQty,
       reason: item.reason || data.reason,
@@ -93,10 +102,10 @@ export async function createAdjustment(data: CreateAdjustmentInput, userId: stri
     });
   }
 
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { name: true, username: true } });
+  const user = await db.user.findUnique({ where: { id: userId }, select: { name: true, username: true } });
   const createdByName = user?.name || user?.username || "System User";
 
-  const adjustment = await prisma.stockAdjustment.create({
+  const adjustment = await db.stockAdjustment.create({
     data: {
       adjustmentNumber,
       warehouseId: data.warehouseId,
@@ -119,7 +128,7 @@ export async function createAdjustment(data: CreateAdjustmentInput, userId: stri
     },
   });
 
-  await prisma.auditLog.create({
+  await db.auditLog.create({
     data: {
       userId,
       action: "stock_adjustment_created",
@@ -270,7 +279,10 @@ export async function cancelAdjustment(adjustmentId: string, cancellationReason:
 }
 
 export async function postAdjustment(adjustmentId: string, userId: string) {
-  return await prisma.$transaction(async (tx) => {
+  return inventoryTransaction(prisma, tx => postAdjustmentInTx(tx, adjustmentId, userId));
+}
+
+export async function postAdjustmentInTx(tx: any, adjustmentId: string, userId: string) {
     const adj = await tx.stockAdjustment.findUnique({
       where: { id: adjustmentId },
       include: {
@@ -286,7 +298,8 @@ export async function postAdjustment(adjustmentId: string, userId: string) {
       throw new Error(`Cannot post stock adjustment in '${adj.status}' status.`);
     }
 
-    const user = await tx.user.findUnique({ where: { id: userId }, select: { name: true, username: true } });
+    if (adj.status !== "APPROVED") throw new Error("Only APPROVED adjustments can be posted");
+    const user = await authorizeInventoryPosting(tx, userId, adj.warehouseId, "INVENTORY_ADJUSTMENT_POST");
     const postedByName = user?.name || user?.username || "User";
 
     // Lock status immediately
@@ -352,7 +365,6 @@ export async function postAdjustment(adjustmentId: string, userId: string) {
       where: { id: adjustmentId },
       include: { warehouse: true, items: { include: { product: true, bin: true } } },
     });
-  });
 }
 
 export async function getAdjustmentById(adjustmentId: string) {

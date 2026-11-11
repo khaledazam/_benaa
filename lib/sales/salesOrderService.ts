@@ -45,11 +45,11 @@ export interface GetSalesOrdersQuery {
 /**
  * Generates human-readable Sales Order number: SO-2026-XXXXXX
  */
-export async function generateSalesOrderNumber(): Promise<string> {
+export async function generateSalesOrderNumber(db: any = prisma): Promise<string> {
   const year = new Date().getFullYear();
   const prefix = `SO-${year}-`;
 
-  const lastOrder = await prisma.salesOrder.findFirst({
+  const lastOrder = await db.salesOrder.findFirst({
     where: { salesOrderNumber: { startsWith: prefix } },
     orderBy: { salesOrderNumber: "desc" },
     select: { salesOrderNumber: true },
@@ -79,30 +79,30 @@ function roundMoney(amount: number): number {
 /**
  * Creates a new DRAFT Sales Order
  */
-export async function createSalesOrderDraft(data: CreateSalesOrderInput, userId: string) {
+export async function createSalesOrderDraft(data: CreateSalesOrderInput, userId: string, db: any = prisma) {
   if (!data.customerId) throw new Error("Customer is required");
   if (!data.warehouseId) throw new Error("Warehouse is required");
   if (!data.items || data.items.length === 0) throw new Error("Sales order must contain at least one item");
 
   // 1. Validate Customer & active status
-  const customer = await prisma.customer.findUnique({ where: { id: data.customerId } });
+  const customer = await db.customer.findUnique({ where: { id: data.customerId } });
   if (!customer) throw new Error("Customer not found");
   if (!customer.active) throw new Error(`Customer '${customer.name}' is INACTIVE and cannot receive new Sales Orders`);
 
   // 2. Validate Warehouse
-  const warehouse = await prisma.warehouse.findUnique({ where: { id: data.warehouseId } });
+  const warehouse = await db.warehouse.findUnique({ where: { id: data.warehouseId } });
   if (!warehouse) throw new Error("Warehouse not found");
 
   // 3. Fetch Products & Units for Snapshots & Pricing
   const productIds = data.items.map((i) => i.productId);
-  const products = await prisma.product.findMany({
+  const products = await db.product.findMany({
     where: { id: { in: productIds } },
   });
 
   const productMap = new Map<string, any>(products.map((p: any) => [p.id, p]));
 
   const unitIds = data.items.map((i) => i.unitId).filter(Boolean) as string[];
-  const units = unitIds.length > 0 ? await prisma.unit.findMany({ where: { id: { in: unitIds } } }) : [];
+  const units = unitIds.length > 0 ? await db.unit.findMany({ where: { id: { in: unitIds } } }) : [];
   const unitMap = new Map<string, any>(units.map((u: any) => [u.id, u]));
 
   // 4. Build line items with snapshots and line totals
@@ -147,10 +147,10 @@ export async function createSalesOrderDraft(data: CreateSalesOrderInput, userId:
   const subtotal = roundMoney(calculatedSubtotal);
   const total = roundMoney(subtotal - orderDiscount + orderTax);
 
-  const salesOrderNumber = await generateSalesOrderNumber();
+  const salesOrderNumber = await generateSalesOrderNumber(db);
 
   // 5. Save SalesOrder in DRAFT status
-  const salesOrder = await prisma.salesOrder.create({
+  const salesOrder = await db.salesOrder.create({
     data: {
       salesOrderNumber,
       customerId: customer.id,
@@ -179,7 +179,7 @@ export async function createSalesOrderDraft(data: CreateSalesOrderInput, userId:
   });
 
   // 6. Audit Log
-  await prisma.auditLog.create({
+  await db.auditLog.create({
     data: {
       userId,
       action: "sales_order_created",

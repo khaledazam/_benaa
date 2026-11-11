@@ -6,6 +6,8 @@
 
 "use client";
 
+import Link from "next/link";
+import { hasPermission } from "@/lib/auth/permissions";
 import React, {
   useState,
   useRef,
@@ -36,6 +38,7 @@ import {
   useWatch,
 } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import {
   useCreateOrder,
   useUpdateOrder,
@@ -253,7 +256,15 @@ export default function OrderDialog({
   // ==================== CREATE ORDER FORM ====================
   // Initialize create form
   const createFormMethods = useForm<OrderFormData>({
-    resolver: zodResolver(createOrderSchema),
+    resolver: async (values, context, options) => {
+      const formSchema = createOrderSchema.extend({ useSameAddress: z.boolean().optional() });
+      // Form rows may be incomplete before submit; undefined remains invalid.
+      const input = { ...values, items: values.items.map(item => ({ ...item, quantity: item.quantity ?? Number.NaN })) };
+      return zodResolver(formSchema)(input, context, {
+        fields: options.fields, criteriaMode: options.criteriaMode,
+        shouldUseNativeValidation: options.shouldUseNativeValidation,
+      });
+    },
     defaultValues: {
       items: [{ productId: "", quantity: undefined }],
       useSameAddress: true,
@@ -728,6 +739,17 @@ export default function OrderDialog({
   const currentStatus = editWatch("status");
 
   // ==================== RENDER ====================
+  if (!editingOrder) return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>{children || <Button>إنشاء أمر بيع</Button>}</DialogTrigger>
+      <DialogContent>
+        <DialogHeaderBrand icon={Package} tone="violet" title="أمر مبيعات العميل" description="إنشاء أمر معتمد ثم حجز والتقاط وصرف وفاتورة واحدة؛ تُراجع الأسعار والضريبة والخصومات في أمر البيع." />
+        {hasPermission(user, "SALES_ORDER_CREATE")
+          ? <Button asChild><Link href="/sales/new" onClick={() => setOpen(false)}>فتح نموذج أمر المبيعات</Link></Button>
+          : <p>يتولى فريق المبيعات المصرّح له تسجيل الطلب واعتماده. الطلب الذاتي من بوابة العميل غير متاح في هذا الإصدار.</p>}
+      </DialogContent>
+    </Dialog>
+  );
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>

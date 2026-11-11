@@ -121,10 +121,10 @@ export async function PUT(
     const parsed = updateSupportTicketSchema.safeParse(body);
     if (!parsed.success) {
       logger.warn("Invalid support ticket update data", {
-        errors: parsed.error.errors,
+        errors: parsed.error.issues,
       });
       return NextResponse.json(
-        { error: "Invalid request body", details: parsed.error.errors },
+        { error: "Invalid request body", details: parsed.error.issues },
         { status: 400 },
       );
     }

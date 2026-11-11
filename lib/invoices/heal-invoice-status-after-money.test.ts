@@ -13,6 +13,7 @@ vi.mock("@/lib/cache", () => ({
 
 vi.mock("@/prisma/client", () => ({
   prisma: {
+    $transaction: vi.fn(async (fn: any) => fn((await import("@/prisma/client")).prisma)),
     invoice: { findUnique: vi.fn(), update: vi.fn() },
     order: { findUnique: vi.fn(), update: vi.fn() },
   },

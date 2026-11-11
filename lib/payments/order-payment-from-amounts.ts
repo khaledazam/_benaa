@@ -7,27 +7,14 @@
  */
 
 import { prisma } from "@/prisma/client";
-import { fulfillPendingOrderLines } from "@/lib/products/order-stock-reservation";
-import { logger } from "@/lib/logger";
+import { fulfillPaidOrderInTx } from "./order-fulfillment";
+import { inventoryTransaction } from "@/lib/inventory/transaction";
+
 import type { PaymentStatus } from "@/types";
 
-/** Dollar → integer cents for settle comparisons (avoids 1880.06 float noise). */
-export function toCents(amount: number): number {
-  const n = Number.isFinite(amount) ? amount : 0;
-  return Math.round(n * 100);
-}
-
-/** Pure: map amountPaid vs total → order paymentStatus (never refunded). */
-export function deriveOrderPaymentStatus(
-  amountPaid: number,
-  total: number,
-): Exclude<PaymentStatus, "refunded"> {
-  const paidCents = toCents(amountPaid);
-  const totalCents = toCents(total);
-  if (paidCents <= 0 || totalCents <= 0) return "unpaid";
-  if (paidCents >= totalCents) return "paid";
-  return "partial";
-}
+// Keep the historical API while client caches import the pure module directly.
+import { toCents, deriveOrderPaymentStatus } from "./payment-status";
+export { toCents, deriveOrderPaymentStatus } from "./payment-status";
 
 /**
  * REQ-0209 — When first money lands on a pending order, bump fulfillment to confirmed
@@ -62,56 +49,21 @@ export async function syncOrderPaymentStatusFromInvoice(
   if (!orderId) return null;
   if (input.invoiceStatus === "cancelled") return null;
 
-  const derived = deriveOrderPaymentStatus(input.amountPaid, input.total);
-
-  const order = await prisma.order.findUnique({
-    where: { id: orderId },
-    include: { items: true },
+  return inventoryTransaction(prisma, async (tx) => {
+    const order = await tx.order.findUnique({ where: { id: orderId }, include: { items: true } });
+    if (!order || order.paymentStatus === "refunded" || order.status === "cancelled") return null;
+    const invoice = await tx.invoice.findUnique({ where: { orderId } });
+    if (invoice?.status === "cancelled") return null;
+    const money = invoice || input;
+    if (!Number.isFinite(money.amountPaid) || !Number.isFinite(money.total) || money.amountPaid < 0 || money.total < 0) throw new Error("Invalid invoice money");
+    const derived = deriveOrderPaymentStatus(money.amountPaid, money.total);
+    const fulfill = shouldConfirmAndFulfillOnPaymentSync({ derived, orderStatus: order.status });
+    if (!fulfill && order.paymentStatus === derived) return derived;
+    if (fulfill) await fulfillPaidOrderInTx(tx, order);
+    await tx.order.update({ where: { id: order.id }, data: { paymentStatus: derived,
+      ...(fulfill ? { status: "confirmed" } : {}), updatedAt: new Date() } });
+    return derived;
   });
-  if (!order) return null;
-  if (order.paymentStatus === "refunded") return null;
-
-  const shouldConfirmAndFulfill = shouldConfirmAndFulfillOnPaymentSync({
-    derived,
-    orderStatus: order.status,
-  });
-  const statusUnchanged =
-    order.paymentStatus === derived && !shouldConfirmAndFulfill;
-
-  if (statusUnchanged) return derived;
-
-  await prisma.order.update({
-    where: { id: orderId },
-    data: {
-      paymentStatus: derived,
-      ...(shouldConfirmAndFulfill ? { status: "confirmed" as const } : {}),
-      updatedAt: new Date(),
-    },
-  });
-
-  // Fulfill reserved lines only when leaving pending on first money (partial or paid)
-  if (shouldConfirmAndFulfill) {
-    try {
-      await fulfillPendingOrderLines(
-        order.items.map((item) => ({
-          productId: item.productId,
-          quantity: item.quantity,
-          warehouseId: item.warehouseId,
-        })),
-      );
-    } catch (allocErr) {
-      logger.warn(
-        "Failed to fulfill stock for invoice-synced order after first payment",
-        {
-          orderId,
-          derived,
-          error: allocErr,
-        },
-      );
-    }
-  }
-
-  return derived;
 }
 
 /**
@@ -144,7 +96,9 @@ export function applyIncrementalInvoicePayment(args: {
   const amountPaid = fullyPaid ? total : newPaidCents / 100;
   const amountDue = fullyPaid ? 0 : Math.max(0, (totalCents - newPaidCents) / 100);
   let status = args.priorStatus;
-  if (fullyPaid) {
+  if (args.priorStatus === "cancelled") {
+    status = "cancelled";
+  } else if (fullyPaid) {
     status = "paid";
   } else if (newPaidCents > 0) {
     // REQ-0211 — any money: draft→sent; keep overdue; never revive cancelled

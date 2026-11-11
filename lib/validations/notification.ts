@@ -6,7 +6,7 @@ import { z } from "zod";
 
 /** In-app notification PUT body (id comes from route param) */
 export const updateInAppNotificationBodySchema = z.object({
-  read: z.boolean({ required_error: "read is required" }),
+  read: z.boolean({ error: "read is required" }),
 });
 
 const emailNotificationTypeSchema = z.enum([
@@ -25,6 +25,6 @@ export const emailNotificationBodySchema = z.object({
   type: emailNotificationTypeSchema,
   recipientEmail: z.string().email("Invalid recipient email"),
   recipientName: z.string().optional(),
-  data: z.record(z.unknown()),
+  data: z.record(z.string(), z.unknown()),
   adminEmail: z.string().email().optional(),
 });

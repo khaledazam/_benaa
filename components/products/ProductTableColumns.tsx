@@ -26,7 +26,7 @@ import {
   ProductStockFromQuantityBadge,
   productStockAvailableTextClass,
 } from "@/lib/ui/semantic-badges";
-import { getDisplayCommittedQuantity } from "@/lib/products/enrich-product-committed-quantity";
+import { getDisplayCommittedQuantity } from "@/lib/products/committed-quantity-display";
 import { cn } from "@/lib/utils";
 import { ArrowUpDown } from "lucide-react";
 import { IoMdArrowDown, IoMdArrowUp } from "react-icons/io";

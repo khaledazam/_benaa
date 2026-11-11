@@ -1,9 +1,10 @@
+import { withWarehouseScope } from "@/lib/auth/warehouse-route-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/requireRole";
 import { cancelPurchaseOrder } from "@/lib/procurement/procurementService";
 import { BuildStockPermissions } from "@/lib/auth/permissions";
 
-export async function POST(
+async function scopedPOST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -19,3 +20,4 @@ export async function POST(
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
 }
+export const POST = withWarehouseScope(scopedPOST);

@@ -1,8 +1,4 @@
-/**
- * LLM orchestrator: OpenRouter first, Groq fallback on failure.
- * Used by /api/ai/insights and forecasting AI helpers.
- */
-
+import { createNaraRouterChatCompletion, isNaraRouterConfigured } from "./nararouter";
 import { createGroqChatCompletion, isGroqConfigured } from "./groq";
 import {
   createOpenRouterChatCompletion,
@@ -24,13 +20,14 @@ export type {
   LlmProvider,
 } from "./types";
 
-/** Re-export for callers that only check OpenRouter */
+/** Re-export for callers that only check OpenRouter or NaraRouter */
 export { isOpenRouterConfigured } from "./openrouter";
 export { isGroqConfigured } from "./groq";
+export { isNaraRouterConfigured } from "./nararouter";
 
 /** True when at least one provider has an API key */
 export function isLlmConfigured(): boolean {
-  return isOpenRouterConfigured() || isGroqConfigured();
+  return isNaraRouterConfigured() || isOpenRouterConfigured() || isGroqConfigured();
 }
 
 const FALLBACK_KINDS: ChatCompletionFailureKind[] = [
@@ -40,22 +37,32 @@ const FALLBACK_KINDS: ChatCompletionFailureKind[] = [
   "not_configured",
 ];
 
-function shouldTryGroqFallback(
-  openRouterResult: Extract<ChatCompletionResult, { ok: false }>,
+function shouldTryFallback(
+  result: Extract<ChatCompletionResult, { ok: false }>,
 ): boolean {
-  if (!isGroqConfigured()) {
-    return false;
-  }
-  return FALLBACK_KINDS.includes(openRouterResult.kind);
+  return FALLBACK_KINDS.includes(result.kind);
 }
 
 /**
- * Try OpenRouter; on billing/rate-limit/upstream/not_configured, try Groq.
+ * Try NaraRouter first (preferred), then OpenRouter, then Groq fallback.
  */
 export async function createChatCompletion(
   messages: ChatMessage[],
   options: ChatCompletionOptions = {},
 ): Promise<ChatCompletionResult> {
+  // 1. Try NaraRouter if configured
+  if (isNaraRouterConfigured()) {
+    const naraResult = await createNaraRouterChatCompletion(messages, options);
+    if (naraResult.ok) {
+      return naraResult;
+    }
+    console.warn("[LLM] NaraRouter failed, checking next fallback:", naraResult.kind);
+    if (!shouldTryFallback(naraResult)) {
+      return naraResult;
+    }
+  }
+
+  // 2. Try OpenRouter
   const openRouterResult = await createOpenRouterChatCompletion(
     messages,
     options,
@@ -65,7 +72,7 @@ export async function createChatCompletion(
     return openRouterResult;
   }
 
-  if (shouldTryGroqFallback(openRouterResult)) {
+  if (shouldTryFallback(openRouterResult)) {
     console.warn(
       "[LLM] OpenRouter failed, trying Groq fallback:",
       openRouterResult.kind,

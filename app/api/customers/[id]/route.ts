@@ -7,10 +7,11 @@ import { getCustomerById, updateCustomer, deactivateCustomer } from "@/lib/custo
 export async function GET(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const session = await getSession();
+    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const user = session ? mapSessionToAppUser(session) : null;
     const role = user?.role || "VIEWER";
 
-    if (!hasPermission(role, BuildStockPermissions.CUSTOMER_VIEW)) {
+    if (!hasPermission(user, BuildStockPermissions.CUSTOMER_VIEW)) {
       return NextResponse.json({ error: "Unauthorized access" }, { status: 403 });
     }
 
@@ -25,10 +26,11 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
 export async function PATCH(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const session = await getSession();
+    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const user = session ? mapSessionToAppUser(session) : null;
     const role = user?.role || "VIEWER";
 
-    if (!hasPermission(role, BuildStockPermissions.CUSTOMER_UPDATE)) {
+    if (!hasPermission(user, BuildStockPermissions.CUSTOMER_UPDATE)) {
       return NextResponse.json({ error: "Insufficient permissions to update customers" }, { status: 403 });
     }
 
@@ -44,10 +46,11 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
 export async function DELETE(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const session = await getSession();
+    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const user = session ? mapSessionToAppUser(session) : null;
     const role = user?.role || "VIEWER";
 
-    if (!hasPermission(role, BuildStockPermissions.CUSTOMER_DEACTIVATE)) {
+    if (!hasPermission(user, BuildStockPermissions.CUSTOMER_DEACTIVATE)) {
       return NextResponse.json({ error: "Insufficient permissions to deactivate customers" }, { status: 403 });
     }
 

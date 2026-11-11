@@ -3,6 +3,8 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 vi.mock("@/prisma/client", () => ({
   prisma: {
     stockAllocation: { findMany: vi.fn() },
+    stockReservationItem: { findMany: vi.fn().mockResolvedValue([]) },
+    projectMaterialIssueItem: { findMany: vi.fn().mockResolvedValue([]) },
     product: { findMany: vi.fn() },
     category: { findMany: vi.fn() },
     supplier: { findMany: vi.fn() },
@@ -21,6 +23,12 @@ import { getStockByProductForPage } from "./product-stock-data";
 describe("getStockByProductForPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('does not query warehouse allocations for an internal employee without an assignment', async () => {
+    vi.mocked(getProductDetailForPage).mockResolvedValue({ id: 'prod-1', userId: 'owner' } as never);
+    expect(await getStockByProductForPage({ id: 'employee', role: 'STOREKEEPER', warehouseIds: [] }, 'prod-1')).toEqual([]);
+    expect(prisma.stockAllocation.findMany).not.toHaveBeenCalled();
   });
 
   it("resolves warehouses by product owner userId, not session id (REQ-0075 AC1)", async () => {

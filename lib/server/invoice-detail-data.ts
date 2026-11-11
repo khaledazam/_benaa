@@ -1,3 +1,4 @@
+import { erpFinancialAccess } from "@/lib/sales/financialAccess";
 /**
  * Server-side invoice detail fetch for SSR prefetch.
  * Mirrors GET /api/invoices/:id auth + response shape.
@@ -151,10 +152,15 @@ async function enrichInvoice(
   );
   const shippingAddress = (order?.shippingAddress as BillingAddress | null) ?? null;
 
+  const erpContact = order?.customerId ? await prisma.customer.findUnique({ where: { id: order.customerId } }) : null;
+  const erpSale = order?.erpSalesOrderId ? await prisma.salesOrder.findUnique({ where: { id: order.erpSalesOrderId } }) : null;
+  const erpParty = erpContact ? { name: erpSale?.customerNameSnapshot || erpContact.name, email: erpContact.email || "", image: null } : null;
   return {
+    erpSalesOrderId: order?.erpSalesOrderId,
+    customerId: order?.customerId,
     invoiceCreatedBy,
-    orderedBy,
-    client,
+    orderedBy: erpParty || orderedBy,
+    client: erpParty || client,
     invoiceProductOwners,
     linkedOrderNumber: order?.orderNumber ?? null,
     linkedOrderItems: await enrichOrderItemsCatalogNames(
@@ -186,7 +192,12 @@ export async function getInvoiceDetailForPage(
   const isSupplier = session.role === "supplier";
 
   let invoice: Awaited<ReturnType<typeof getInvoiceById>> | null;
-  if (isAdmin) {
+  const candidate = await prisma.invoice.findUnique({ where: { id: invoiceId } });
+  const erpAccess = candidate ? await erpFinancialAccess(prisma, userId, candidate.orderId) : null;
+  if (erpAccess === false) return null;
+  if (erpAccess === true) {
+    invoice = candidate;
+  } else if (isAdmin) {
     invoice = await prisma.invoice.findUnique({ where: { id: invoiceId } });
   } else if (isClient) {
     // REQ-0214 — buyer invoices + catalog recent-order INV chips (read-only; Pay gated in UI)

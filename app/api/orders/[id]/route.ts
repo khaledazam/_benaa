@@ -94,17 +94,21 @@ export async function PUT(
     const { id } = await params;
     const userId = session.id;
     const body = await request.json();
+    if (body.status !== undefined || body.paymentStatus !== undefined || body.items !== undefined) {
+      return NextResponse.json({ error: "Legacy stock/payment status changes are temporarily unavailable. Use approved atomic fulfillment or payment workflows; retain the requested change for review.", code: "ATOMIC_ORDER_REQUIRED" }, { status: 409 });
+    }
+
 
     // Validate request body
     const validationResult = updateOrderSchema.safeParse(body);
     if (!validationResult.success) {
       logger.warn("Invalid order update data", {
-        errors: validationResult.error.errors,
+        errors: validationResult.error.issues,
       });
       return NextResponse.json(
         {
           error: "Invalid request body",
-          details: validationResult.error.errors,
+          details: validationResult.error.issues,
         },
         { status: 400 },
       );
@@ -408,174 +412,8 @@ export async function PUT(
  * DELETE /api/orders/:id
  * Cancel order (soft delete)
  */
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  try {
-    // Rate limiting check
-    const rateLimitResponse = await withRateLimit(
-      request,
-      defaultRateLimits.standard,
-    );
-    if (rateLimitResponse) {
-      return rateLimitResponse;
-    }
-
-    const session = await getSessionFromRequest(request);
-    if (!session) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const { id } = await params;
-    const userId = session.id;
-
-    // Get existing order before cancellation for notification.
-    // Admin can cancel any order; other roles only their own.
-    const isAdmin = session.role === "admin";
-    let existingOrder: Awaited<ReturnType<typeof getOrderById>> | null;
-    if (isAdmin) {
-      existingOrder = await getOrderByIdForAdmin(id);
-    } else {
-      existingOrder = await getOrderById(id, userId);
-      if (!existingOrder) {
-        existingOrder = await getOrderByIdForProductOwner(id, userId);
-      }
-    }
-    if (!existingOrder) {
-      return NextResponse.json({ error: "Order not found" }, { status: 404 });
-    }
-
-    // Cancel order — for admin, use the order's own userId so the
-    // Prisma cancelOrder filter matches.
-    const order = await cancelOrder(id, isAdmin ? existingOrder.userId : userId);
-
-    createAuditLog({
-      userId,
-      action: "delete",
-      entityType: "order",
-      entityId: id,
-      details: { orderNumber: existingOrder.orderNumber, summary: "Order cancelled" },
-    }).catch(() => {});
-
-    // Global invalidation: orders affect product/category/supplier detail Recent Orders
-    await invalidateOnOrderChange();
-    // Create in-app notification for order cancellation (async, non-blocking)
-    createOrderNotification(
-      "order_status_update",
-      order.orderNumber,
-      `Order ${order.orderNumber} has been cancelled`,
-      userId,
-      order.id,
-    ).catch((error) => {
-      // Log error but don't fail the request
-      logger.error(
-        "Failed to create in-app notification for order cancellation:",
-        error,
-      );
-    });
-
-    // REQ-0210 — linked invoice after cancel for instant list/detail badge patch
-    const linkedInvoice = await prisma.invoice.findFirst({
-      where: { orderId: id },
-      select: {
-        id: true,
-        invoiceNumber: true,
-        status: true,
-        amountDue: true,
-        amountPaid: true,
-        total: true,
-        cancelledAt: true,
-        paidAt: true,
-        dueDate: true,
-        sentAt: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    });
-
-    const cancelledAtIso = order.cancelledAt?.toISOString() || null;
-
-    // Transform order for response
-    const transformedOrder = {
-      id: order.id,
-      orderNumber: order.orderNumber,
-      userId: order.userId,
-      clientId: order.clientId,
-      status: order.status,
-      paymentStatus: order.paymentStatus,
-      subtotal: order.subtotal,
-      tax: order.tax,
-      shipping: order.shipping,
-      discount: order.discount,
-      total: order.total,
-      shippingAddress: order.shippingAddress,
-      billingAddress: order.billingAddress,
-      notes: order.notes,
-      trackingNumber: order.trackingNumber,
-      trackingCarrier: order.trackingCarrier ?? null,
-      trackingUrl: order.trackingUrl,
-      labelUrl: order.labelUrl ?? null,
-      estimatedDelivery: order.estimatedDelivery?.toISOString() || null,
-      shippedAt: order.shippedAt?.toISOString() || null,
-      deliveredAt: order.deliveredAt?.toISOString() || null,
-      cancelledAt: cancelledAtIso,
-      // List Status column uses statusAt (cancelledAt when cancelled)
-      statusAt: cancelledAtIso,
-      createdAt: order.createdAt.toISOString(),
-      updatedAt: order.updatedAt?.toISOString() || null,
-      createdBy: order.createdBy,
-      updatedBy: order.updatedBy,
-      invoiceForOrder: linkedInvoice
-        ? {
-            id: linkedInvoice.id,
-            invoiceNumber: linkedInvoice.invoiceNumber,
-            status: linkedInvoice.status,
-            amountDue: linkedInvoice.amountDue,
-            amountPaid: linkedInvoice.amountPaid,
-            total: linkedInvoice.total,
-            cancelledAt: linkedInvoice.cancelledAt?.toISOString() || null,
-            paidAt: linkedInvoice.paidAt?.toISOString() || null,
-            dueDate: linkedInvoice.dueDate?.toISOString() || undefined,
-            sentAt: linkedInvoice.sentAt?.toISOString() || null,
-            createdAt: linkedInvoice.createdAt.toISOString(),
-            updatedAt: linkedInvoice.updatedAt?.toISOString() || null,
-          }
-        : null,
-      items: (order.items || []).map(
-        (item: {
-          id: string;
-          orderId: string;
-          productId: string;
-          productName: string;
-          sku: string | null;
-          quantity: number;
-          price: number;
-          subtotal: number;
-          createdAt: Date;
-        }) => ({
-          id: item.id,
-          orderId: item.orderId,
-          productId: item.productId,
-          productName: item.productName,
-          sku: item.sku,
-          quantity: item.quantity,
-          price: item.price,
-          subtotal: item.subtotal,
-          createdAt: item.createdAt.toISOString(),
-        }),
-      ),
-    };
-
-    return NextResponse.json(transformedOrder);
-  } catch (error) {
-    logger.error("Error cancelling order:", error);
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Failed to cancel order",
-      },
-      { status: 500 },
-    );
-  }
+export async function DELETE(request: NextRequest, _context: { params: Promise<{ id: string }> }) {
+  const session = await getSessionFromRequest(request);
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  return NextResponse.json({ error: "Legacy cancellation is temporarily unavailable pending atomic inventory reversal. No refund or financial allocation policy is changed.", code: "ATOMIC_ORDER_REQUIRED" }, { status: 409 });
 }

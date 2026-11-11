@@ -1,3 +1,5 @@
+import { getSessionFromRequest } from "@/utils/auth";
+import { hasPermission } from "@/lib/auth/permissions";
 /**
  * Performance Metrics API Route
  * Provides performance metrics for all API endpoints including:
@@ -33,6 +35,9 @@ import { logger } from "@/lib/logger";
  */
 export async function GET(request: NextRequest) {
   try {
+    const session = await getSessionFromRequest(request);
+    if (!session) return errorResponse("Unauthorized", 401);
+    if (!hasPermission(session, "SYSTEM_CONFIG")) return errorResponse("Forbidden", 403);
     const { searchParams } = new URL(request.url);
     const endpoint = searchParams.get("endpoint");
     const method = searchParams.get("method");

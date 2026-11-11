@@ -1,10 +1,12 @@
+import { withWarehouseScope } from "@/lib/auth/warehouse-route-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/requireRole";
 import { BuildStockPermissions } from "@/lib/auth/permissions";
-import { getSalesOrders, createSalesOrderDraft } from "@/lib/sales/salesOrderService";
+import { getSalesOrders } from "@/lib/sales/salesOrderService";
+import { createSalesOrderCommand } from "@/lib/sales/createSalesOrderCommand";
 import { createCorsHeaders, handleCorsPreflight } from "@/lib/api/cors";
 
-export async function GET(req: NextRequest) {
+async function scopedGET(req: NextRequest) {
   const corsHeaders = createCorsHeaders(req);
   const auth = await requireAuth(req, BuildStockPermissions.SALES_ORDER_VIEW);
   if (auth instanceof NextResponse) return auth;
@@ -37,20 +39,23 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export async function POST(req: NextRequest) {
+async function scopedPOST(req: NextRequest) {
   const corsHeaders = createCorsHeaders(req);
   const auth = await requireAuth(req, BuildStockPermissions.SALES_ORDER_CREATE);
   if (auth instanceof NextResponse) return auth;
 
   try {
     const body = await req.json();
-    const salesOrder = await createSalesOrderDraft(body, auth.session.id);
+    const salesOrder = await createSalesOrderCommand(body, auth.session.id, req.headers.get("Idempotency-Key"));
     return NextResponse.json(salesOrder, { status: 201, headers: corsHeaders });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message || "Failed to create sales order" }, { status: 400, headers: corsHeaders });
+    return NextResponse.json({ error: error.message || "Failed to create sales order" }, { status: error.status || 400, headers: corsHeaders });
   }
 }
 
 export async function OPTIONS(request: NextRequest) {
   return handleCorsPreflight(request);
 }
+
+export const GET = withWarehouseScope(scopedGET);
+export const POST = withWarehouseScope(scopedPOST);

@@ -9,7 +9,9 @@ export const dynamic = "force-dynamic";
 export default async function AdminClientPortalPage() {
   const user = await getSession();
   if (!user) redirect("/login");
-  if (user.role !== "admin") redirect("/admin");
+  const role = user.role?.toUpperCase() || "";
+  const isAdmin = role === "ADMIN" || role === "SUPER_ADMIN" || role === "SUPERADMIN";
+  if (!isAdmin) redirect("/admin");
 
   const initialStats = await getClientPortalForAdmin();
   return <AdminClientPortalContent initialStats={initialStats} />;

@@ -61,7 +61,7 @@ export async function GET(
     }
 
     // Get client info if available
-    let clientName = "Customer";
+    let clientName = authorized.client?.name || "Customer";
     if (invoice.clientId) {
       const client = await prisma.user.findUnique({
         where: { id: invoice.clientId },

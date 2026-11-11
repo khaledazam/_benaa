@@ -6,6 +6,28 @@ import * as Sentry from "@sentry/nextjs";
 
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
+    if(process.env.BENAA_TEST_RUN_ID && process.env.NEXT_PHASE !== 'phase-production-build') {
+      const uri=new URL(process.env.DATABASE_URL || '');
+      if(process.env.BENAA_TEST_EXISTING_DATABASE_APPROVED!=='true' || uri.hostname!=='cluster0.kp7wfjx.mongodb.net' || uri.pathname!=='/buildstock_db') {
+        throw new Error('Authorized Atlas test target declaration required');
+      }
+      const [{PrismaClient,Prisma},{authorizedAtlasFence}]=await Promise.all([
+        import('@prisma/client'),import('./lib/testing/authorized-atlas-fence')]);
+      globalThis.prisma=authorizedAtlasFence(new PrismaClient(),Prisma.dmmf.datamodel.models,
+        process.env.BENAA_TEST_REGISTRY || '',process.env.BENAA_TEST_RUN_ID);
+    }
+    if (process.env.NODE_ENV === 'production' && process.env.NEXT_PHASE !== 'phase-production-build') {
+      const { validateRuntimeConfiguration } = await import('./lib/runtime/config');
+      try {
+        validateRuntimeConfiguration();
+      } catch (error) {
+        // Next can retain its listener after a rejected instrumentation hook.
+        // A misconfigured production process must terminate before any service
+        // initialization, rather than remain alive returning startup errors.
+        process.stderr.write(`${error instanceof Error ? error.message : 'Unsafe runtime configuration'}\n`);
+        process.exit(1);
+      }
+    }
     try {
       await import("./sentry.server.config");
     } catch {

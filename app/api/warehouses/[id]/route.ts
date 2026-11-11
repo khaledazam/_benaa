@@ -1,3 +1,4 @@
+import { withWarehouseScope } from "@/lib/auth/warehouse-route-scope";
 /**
  * Warehouse Detail API Route Handler
  * GET /api/warehouses/:id
@@ -12,7 +13,7 @@ import { getWarehouseDetailForPage } from "@/lib/server/warehouse-detail-data";
  * GET /api/warehouses/:id
  * Get warehouse by ID (must belong to user)
  */
-export async function GET(
+async function scopedGET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -44,3 +45,5 @@ export async function GET(
     );
   }
 }
+
+export const GET = withWarehouseScope(scopedGET);

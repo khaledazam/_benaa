@@ -11,6 +11,7 @@ import {
   enrichStockAllocationRows,
 } from "@/lib/stock-allocation/stock-allocation-enrich";
 import type { StockAllocation } from "@/types";
+import { hasPermission, BuildStockRoles } from '@/lib/auth/permissions';
 
 /** Per-warehouse allocations for a product the user can access. */
 export async function getStockByProductForPage(
@@ -19,12 +20,17 @@ export async function getStockByProductForPage(
 ): Promise<StockAllocation[] | null> {
   const product = await getProductDetailForPage(session, productId);
   if (!product) return null;
+  if (!hasPermission(session, 'STOCK_VIEW')) return [];
+  const internal = Object.values(BuildStockRoles).includes(session.role as any);
+  const admin = session.role === 'SUPER_ADMIN' || session.role === 'admin';
+  const allowed = [...new Set([session.primaryWarehouseId, ...(session.warehouseIds || [])].filter(Boolean))] as string[];
+  if (internal && !admin && !allowed.length) return [];
 
   // Warehouses belong to the product owner (admin), not the viewing session (REQ-0075 AC1).
   const ownerUserId = product.userId;
 
   const allocations = await prisma.stockAllocation.findMany({
-    where: { productId },
+    where: { productId, ...(internal && !admin ? { warehouseId: { in: allowed } } : {}) },
     orderBy: { quantity: "desc" },
   });
 
@@ -35,7 +41,7 @@ export async function getStockByProductForPage(
   const [productMap, warehouses] = await Promise.all([
     fetchStockAllocationProductMap([productId]),
     prisma.warehouse.findMany({
-      where: { id: { in: warehouseIds }, userId: ownerUserId },
+      where: { id: { in: warehouseIds }, ...(!internal && !admin ? { userId: ownerUserId } : {}) },
       select: { id: true, name: true, status: true, address: true, type: true },
     }),
   ]);

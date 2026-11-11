@@ -1,3 +1,4 @@
+import { hasPermission } from "@/lib/auth/permissions";
 /**
  * Product Import API Route Handler
  * Handles product data import from CSV/Excel files
@@ -22,6 +23,7 @@ import {
 } from "@/prisma/import-history";
 import { checkAndSendStockAlerts } from "@/lib/email/notifications";
 import { scheduleInvalidateImportCaches } from "@/lib/cache";
+import { MAX_PRODUCT_IMPORT_FILE_BYTES } from "@/lib/import/limits";
 
 /**
  * POST /api/products/import
@@ -43,7 +45,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    if (session.role === "supplier") {
+    if (!hasPermission(session, "PRODUCT_CREATE")) {
       return NextResponse.json(
         { error: "Forbidden: suppliers cannot import products" },
         { status: 403 },
@@ -53,25 +55,28 @@ export async function POST(request: NextRequest) {
     const userId = session.id;
 
     // Parse multipart form data
-    const formData = await request.formData();
+    let formData: FormData;
+    try { formData = await request.formData(); }
+    catch { return NextResponse.json({ error: "Invalid or truncated multipart upload" }, { status: 400 }); }
     const file = formData.get("file") as File | null;
 
-    if (!file) {
+    if (!file || typeof file === 'string') {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
 
     // Validate file size (max 10MB)
-    const maxSize = 10 * 1024 * 1024; // 10MB
+    const maxSize = MAX_PRODUCT_IMPORT_FILE_BYTES;
     if (file.size > maxSize) {
       return NextResponse.json(
         { error: "File size exceeds 10MB limit" },
-        { status: 400 },
+        { status: 413 },
       );
     }
 
     // Parse file first to get total rows
     const parsedRows = await parseFile(file);
     const dataRows = parsedRows.filter((row) => !row.isHeader);
+    if (!dataRows.length) return NextResponse.json({ error: "Import contains no product rows" }, { status: 400 });
 
     // Create import history record
     const importHistory = await createImportHistory({
@@ -107,7 +112,7 @@ export async function POST(request: NextRequest) {
         {
           importColumn: "Quantity",
           schemaField: "quantity",
-          transform: transformFunctions.toInteger,
+          transform: transformFunctions.toNumber,
         },
         {
           importColumn: "Status",
@@ -186,7 +191,7 @@ export async function POST(request: NextRequest) {
         {
           importColumn: "Quantity",
           schemaField: "quantity",
-          transform: transformFunctions.toInteger,
+          transform: transformFunctions.toNumber,
         },
         {
           importColumn: "Status",
@@ -214,7 +219,7 @@ export async function POST(request: NextRequest) {
       // Validate rows (without category/supplier lookup)
       const validationResult = validateRows(
         dataRows,
-        createProductSchema.extend({
+        createProductSchema.omit({ categoryId: true, supplierId: true, userId: true }).extend({
           categoryName: z.string().min(1),
           supplierName: z.string().min(1),
         }),
@@ -223,12 +228,12 @@ export async function POST(request: NextRequest) {
 
       // Process valid rows
       let successCount = 0;
-      let failCount = 0;
+      let failCount = dataRows.length - validationResult.validRows.length;
       const errors: Array<{
         rowNumber: number;
         field?: string;
         message: string;
-      }> = [...validationResult.errors];
+      }> = validationResult.errors.map(({ rowNumber, field, message }) => ({ rowNumber, field, message }));
 
       // Get all categories and suppliers for lookup
       const categories = await prisma.category.findMany({
@@ -294,6 +299,7 @@ export async function POST(request: NextRequest) {
             continue;
           }
 
+          if (Number(rowData.quantity) !== 0) throw new Error("Import catalog metadata with zero stock; use the inventory engine for opening balances");
           // Create product
           await prisma.product.create({
             data: {
@@ -324,7 +330,7 @@ export async function POST(request: NextRequest) {
         successRows: successCount,
         failedRows: failCount,
         errors: errors.length > 0 ? errors : undefined,
-        status: failCount === 0 ? "completed" : "completed",
+        status: successCount === 0 ? "failed" : "completed",
       });
     await scheduleInvalidateImportCaches();
       // Check and send stock alerts for newly imported products
@@ -350,7 +356,8 @@ export async function POST(request: NextRequest) {
       }
 
       return NextResponse.json({
-        success: true,
+        success: failCount === 0,
+        partial: successCount > 0 && failCount > 0,
         importId: importHistory.id,
         totalRows: dataRows.length,
         successRows: successCount,

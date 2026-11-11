@@ -1,3 +1,5 @@
+import { erpFinancialAccess } from "@/lib/sales/financialAccess";
+import { prisma } from "@/prisma/client";
 /**
  * POST /api/payments/confirm-session
  * REQ-0209 — Browser return from Stripe applies/syncs payment when webhook is delayed
@@ -7,7 +9,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest } from "@/utils/auth";
 import { logger } from "@/lib/logger";
-import { isStripeConfigured } from "@/lib/stripe";
+import { isStripeConfigured, getStripe } from "@/lib/stripe";
 import { withRateLimit, defaultRateLimits } from "@/lib/api/rate-limit";
 import { confirmCheckoutSessionBodySchema } from "@/lib/validations/payment";
 import { confirmCheckoutSessionById } from "@/lib/payments/confirm-checkout-session";
@@ -38,15 +40,20 @@ export async function POST(request: NextRequest) {
     const parsed = confirmCheckoutSessionBodySchema.safeParse(body);
     if (!parsed.success) {
       logger.warn("Invalid confirm-session body", {
-        errors: parsed.error.errors,
+        errors: parsed.error.issues,
       });
       return NextResponse.json(
-        { error: "Invalid request body", details: parsed.error.errors },
+        { error: "Invalid request body", details: parsed.error.issues },
         { status: 400 },
       );
     }
 
-    const result = await confirmCheckoutSessionById(parsed.data.sessionId);
+    const providerSession = await getStripe().checkout.sessions.retrieve(parsed.data.sessionId);
+    const metadata = providerSession.metadata || {};
+    const invoiceId = metadata.type === "invoice" ? metadata.invoiceId || metadata.referenceId : null;
+    const orderId = metadata.type === "order" ? metadata.orderId || metadata.referenceId : invoiceId ? (await prisma.invoice.findUnique({ where: { id: invoiceId } }))?.orderId : null;
+    if (orderId && await erpFinancialAccess(prisma, session.id, orderId) === false) return NextResponse.json({ error: "Forbidden ERP payment confirmation" }, { status: 403 });
+    const result = await confirmCheckoutSessionById(parsed.data.sessionId, providerSession);
     if (!result.ok) {
       return NextResponse.json(
         { error: result.error ?? "Failed to confirm session" },

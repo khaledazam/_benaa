@@ -1,3 +1,4 @@
+import { withWarehouseScope } from "@/lib/auth/warehouse-route-scope";
 /**
  * BuildStock Stock Transfers API — integrated with StockMovement Ledger
  */
@@ -11,7 +12,7 @@ import { executeStockTransfer } from "@/lib/inventory/stockService";
 import { hasPermission, BuildStockPermissions } from "@/lib/auth/permissions";
 import { scheduleInvalidateStockAllocationCaches } from "@/lib/cache";
 
-export async function POST(request: NextRequest) {
+async function scopedPOST(request: NextRequest) {
   try {
     const rateLimitResponse = await withRateLimit(
       request,
@@ -24,7 +25,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const role = session.role || "VIEWER";
-    if (!hasPermission(role, BuildStockPermissions.STOCK_TRANSFER)) {
+    if (!hasPermission(session, BuildStockPermissions.STOCK_TRANSFER)) {
       return NextResponse.json(
         { error: "Forbidden — STOCK_TRANSFER permission required" },
         { status: 403 }
@@ -41,10 +42,10 @@ export async function POST(request: NextRequest) {
     const validationResult = createStockTransferSchema.safeParse(body);
     if (!validationResult.success) {
       logger.warn("Invalid stock transfer request", {
-        errors: validationResult.error.errors,
+        errors: validationResult.error.issues,
       });
       return NextResponse.json(
-        { error: "Invalid request body", details: validationResult.error.errors },
+        { error: "Invalid request body", details: validationResult.error.issues },
         { status: 400 },
       );
     }
@@ -79,3 +80,5 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+export const POST = withWarehouseScope(scopedPOST);

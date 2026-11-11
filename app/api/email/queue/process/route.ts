@@ -21,6 +21,9 @@ export const runtime = "nodejs";
  */
 export async function POST(request: NextRequest) {
   try {
+    if (!isQStashConfigured()) {
+      return NextResponse.json({ error: "Verified email queue is not configured" }, { status: 503 });
+    }
     const rawBody = await request.text();
 
     if (isQStashConfigured()) {

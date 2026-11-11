@@ -14,7 +14,7 @@ import { hasPermission, BuildStockPermissions } from "@/lib/auth/permissions";
 export default function CustomerDetailView({ customerId }: { customerId: string }) {
   const { user } = useAuth();
   const userRole = user?.role || "VIEWER";
-  const canCreateSO = hasPermission(userRole, BuildStockPermissions.SALES_ORDER_CREATE);
+  const canCreateSO = hasPermission(user, BuildStockPermissions.SALES_ORDER_CREATE);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["customer-detail-stats", customerId],

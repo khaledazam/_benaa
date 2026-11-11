@@ -7,6 +7,10 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 vi.mock("@/prisma/client", () => ({
   prisma: {
     stockAllocation: { findMany: vi.fn() },
+    stockReservationItem: { findMany: vi.fn().mockResolvedValue([]) },
+    projectMaterialIssueItem: { findMany: vi.fn().mockResolvedValue([]) },
+    unit: { findUnique: vi.fn().mockResolvedValue({ active: true, type: "count" }) },
+    unitConversion: { findMany: vi.fn().mockResolvedValue([{ factor: 10 }]) },
   },
 }));
 
@@ -48,6 +52,8 @@ describe("enrich-product-committed-quantity", () => {
   describe("enrichProductDetailWithCommittedQuantity (REQ-0105)", () => {
     beforeEach(() => {
       vi.mocked(prisma.stockAllocation.findMany).mockReset();
+      vi.mocked(prisma.stockReservationItem.findMany).mockResolvedValue([]);
+      vi.mocked(prisma.projectMaterialIssueItem.findMany).mockResolvedValue([]);
     });
 
     it("warehouse-pick: product.reserved=0, allocation.reserved=20 → committed=20", async () => {
@@ -64,5 +70,21 @@ describe("enrich-product-committed-quantity", () => {
       expect(row.reservedQuantity).toBe(0);
       expect(row.committedQuantity).toBe(20);
     });
+    it("includes base-unit ERP and project holds exactly once alongside legacy reservations", async () => {
+      vi.mocked(prisma.stockAllocation.findMany).mockResolvedValue([{ productId: "p1", reservedQuantity: 5 }] as never);
+      vi.mocked(prisma.stockReservationItem.findMany).mockResolvedValue([{ productId: "p1", remainingQuantity: 2, unitId: "box", product: { id: "p1", unitId: "piece" } }] as never);
+      vi.mocked(prisma.projectMaterialIssueItem.findMany).mockResolvedValue([{ productId: "p1", remainingQuantity: 7 }] as never);
+      const row = await enrichProductDetailWithCommittedQuantity({ id: "p1", reservedQuantity: 3 });
+      expect(row.committedQuantity).toBe(35);
+      expect(row.reservedQuantity).toBe(3);
+      expect(prisma.stockReservationItem.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ reservation: { status: { in: ["ACTIVE", "PARTIALLY_FULFILLED"] } } }) }));
+      expect(prisma.projectMaterialIssueItem.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ issue: { status: { in: ["RESERVED", "DISPATCHED"] } } }) }));
+    });
+    it.each([-1, NaN, Infinity])("rejects invalid historical project commitment %s instead of overstating availability", async (remainingQuantity) => {
+      vi.mocked(prisma.stockAllocation.findMany).mockResolvedValue([]);
+      vi.mocked(prisma.projectMaterialIssueItem.findMany).mockResolvedValue([{ productId: "p1", remainingQuantity }] as never);
+      await expect(enrichProductDetailWithCommittedQuantity({ id: "p1", reservedQuantity: 0 })).rejects.toThrow();
+    });
+
   });
 });

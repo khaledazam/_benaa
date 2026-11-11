@@ -50,7 +50,9 @@ export async function GET(request: NextRequest) {
     if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (session.role !== "admin") {
+    const role = session.role?.toUpperCase() || "";
+    const isAdmin = role === "ADMIN" || role === "SUPER_ADMIN" || role === "SUPERADMIN";
+    if (!isAdmin) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -88,7 +90,9 @@ export async function POST(request: NextRequest) {
     if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (session.role !== "admin") {
+    const role = session.role?.toUpperCase() || "";
+    const isAdmin = role === "ADMIN" || role === "SUPER_ADMIN" || role === "SUPERADMIN";
+    if (!isAdmin) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -96,10 +100,10 @@ export async function POST(request: NextRequest) {
     const validation = createUserAdminSchema.safeParse(body);
     if (!validation.success) {
       logger.warn("Invalid user creation data", {
-        errors: validation.error.errors,
+        errors: validation.error.issues,
       });
       return NextResponse.json(
-        { error: "Invalid request body", details: validation.error.errors },
+        { error: "Invalid request body", details: validation.error.issues },
         { status: 400 },
       );
     }

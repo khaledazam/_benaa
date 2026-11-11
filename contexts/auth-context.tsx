@@ -61,6 +61,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
   }, [queryClient]);
 
   useEffect(() => {
+    // Legacy versions copied bearer credentials into web storage. Authentication
+    // now relies on the server's HttpOnly cookie; remove the obsolete copy.
+    localStorage.removeItem('token');
     // Mark component as mounted
     queueMicrotask(() => setMounted(true));
 
@@ -82,7 +85,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
           email: parsed.userEmail || parsed.email,
           image: parsed.image || parsed.picture || null, // Support both image and picture (backward compatibility)
           role: parsed.userRole ?? parsed.role ?? "user",
+          permissions: parsed.permissions,
+          permissionsRestricted: parsed.permissionsRestricted,
         });
+        const { sessionId: _sessionId, token: _token, ...safeCached } = parsed;
+        localStorage.setItem('getSession', JSON.stringify(safeCached));
         setIsLoggedIn(true);
       } catch (error) {
         // Invalid cached data, will check session from server
@@ -124,11 +131,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
             (session as { picture?: string }).picture ||
             undefined,
           role: (session as { role?: string }).role ?? "user",
+          permissions: session.permissions,
+          permissionsRestricted: session.permissionsRestricted,
         });
         localStorage.setItem("isAuth", "true");
         localStorage.setItem("isLoggedIn", "true");
-        const existingToken = localStorage.getItem("token") || session.id;
-        localStorage.setItem("token", existingToken);
+        localStorage.removeItem('token');
         localStorage.setItem("getSession", JSON.stringify(session));
       } else {
         clearAuthData();
@@ -216,6 +224,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
         name: result.userName,
         email: result.userEmail,
         role: result.userRole ?? "user",
+        permissions: result.permissions,
+        permissionsRestricted: result.permissionsRestricted,
       };
 
       // Wipe all cached queries from the previous session so the new user
@@ -224,12 +234,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
 
       setIsLoggedIn(true);
       setUser(userData);
-      Cookies.set("session_id", result.sessionId);
 
       localStorage.setItem("isAuth", "true");
       localStorage.setItem("isLoggedIn", "true");
-      localStorage.setItem("token", result.sessionId);
-      localStorage.setItem("getSession", JSON.stringify(result));
+      localStorage.removeItem('token');
+      localStorage.setItem("getSession", JSON.stringify(userData));
 
       return userData;
     } catch (error) {

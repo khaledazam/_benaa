@@ -1,3 +1,4 @@
+import { withWarehouseScope } from "@/lib/auth/warehouse-route-scope";
 /**
  * Stock allocation by id — update quantity or delete row (REQ-0101).
  */
@@ -52,7 +53,7 @@ async function assertAllocationAccess(
   return { allocation, product, warehouse };
 }
 
-export async function PUT(request: NextRequest, context: RouteContext) {
+async function scopedPUT(request: NextRequest, context: RouteContext) {
   try {
     const rateLimitResponse = await withRateLimit(
       request,
@@ -73,10 +74,10 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     const validation = updateStockAllocationSchema.safeParse(body);
     if (!validation.success) {
       logger.warn("Invalid stock allocation update", {
-        errors: validation.error.errors,
+        errors: validation.error.issues,
       });
       return NextResponse.json(
-        { error: "Invalid request body", details: validation.error.errors },
+        { error: "Invalid request body", details: validation.error.issues },
         { status: 400 },
       );
     }
@@ -133,7 +134,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
   }
 }
 
-export async function DELETE(request: NextRequest, context: RouteContext) {
+async function scopedDELETE(request: NextRequest, context: RouteContext) {
   try {
     const rateLimitResponse = await withRateLimit(
       request,
@@ -172,3 +173,6 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     );
   }
 }
+
+export const PUT = withWarehouseScope(scopedPUT);
+export const DELETE = withWarehouseScope(scopedDELETE);

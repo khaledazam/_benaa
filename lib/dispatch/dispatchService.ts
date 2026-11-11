@@ -1,6 +1,10 @@
+import { authorizeInventoryPosting } from "@/lib/inventory/postingAuthorization";
+import { createHash } from "node:crypto";
 import { prisma } from "@/prisma/client";
-import { executeStockMutationInTx, StockMovementTypes } from "@/lib/inventory/stockService";
-import { deductBatchQuantityInTx, validateProductTrackingModeInTx } from "@/lib/inventory/batchService";
+import { inventoryTransaction } from "@/lib/inventory/transaction";
+import { convertUnitQuantity } from "@/lib/units/unitService";
+import { executeStockMutationInTx, StockMovementTypes, BATCH_MANAGED_IN_TX } from "@/lib/inventory/stockService";
+import { deductBatchQuantityInTx, releaseBatchReservationInTx, validateProductTrackingModeInTx } from "@/lib/inventory/batchService";
 
 export interface GetDispatchesQuery {
   search?: string;
@@ -53,13 +57,6 @@ export function formatLocationPath(bin: any): string {
   if (bin.shelf?.code) parts.push(`Shelf ${bin.shelf.code}`);
   parts.push(`Bin ${bin.code || ""}`);
   return parts.join(" / ");
-}
-
-/**
- * Helper to round quantities to 2 decimals safely
- */
-function roundQty(val: number): number {
-  return Math.round((val + Number.EPSILON) * 100) / 100;
 }
 
 /**
@@ -125,36 +122,31 @@ export async function createDispatch(pickListId: string, userId: string, notes?:
   const dispatchNumber = await generateDispatchNumber();
 
   // 4. Build Dispatch items with bin allocation snapshots
-  const dispatchItemsData = (pickList.items || []).map((item: any) => {
-    const pickedQty = roundQty((item.allocations || []).reduce((sum: number, a: any) => sum + (a.pickedQuantity || 0), 0));
-    const dispatchedQty = pickedQty;
-
-    const binAllocationsData = (item.allocations || [])
-      .filter((a: any) => (a.pickedQuantity || 0) > 0)
-      .map((a: any) => ({
-        binId: a.binId,
-        productId: a.productId,
-        dispatchedQuantity: a.pickedQuantity,
-        unitId: a.unitId,
-        locationPath: formatLocationPath(a.bin),
-      }));
-
-    return {
-      salesOrderItemId: item.salesOrderItemId,
-      pickListItemId: item.id,
-      productId: item.productId,
-      productName: item.product.name,
-      productSku: item.product.sku || null,
-      unitId: item.unitId,
-      unitSymbol: item.unitSymbol,
-      requestedQuantity: item.requestedQuantity,
-      pickedQuantity: pickedQty,
-      dispatchedQuantity: dispatchedQty,
-      binAllocations: {
-        create: binAllocationsData,
-      },
-    };
-  });
+  const dispatchItemsData: any[] = [];
+  for (const item of pickList.items || []) {
+    // DispatchItem represents one batch; retain separate batch identities from picks.
+    const groups = new Map<string, any[]>();
+    for (const allocation of item.allocations || []) {
+      if (!Number.isFinite(allocation.pickedQuantity) || allocation.pickedQuantity < 0) throw new Error("Picked quantities must be finite and nonnegative");
+      if (!allocation.pickedQuantity) continue;
+      const key = allocation.batchId || "";
+      groups.set(key, [...(groups.get(key) || []), allocation]);
+    }
+    for (const [batchId, allocations] of groups) {
+      let pickedQty = 0;
+      for (const allocation of allocations) {
+        pickedQty += await convertUnitQuantity({ quantity: allocation.pickedQuantity, fromUnitId: allocation.unitId || item.product.unitId, toUnitId: item.unitId || item.product.unitId, productId: item.productId }, prisma);
+      }
+      dispatchItemsData.push({ salesOrderItemId: item.salesOrderItemId, pickListItemId: item.id,
+        productId: item.productId, productName: item.product.name, productSku: item.product.sku || null,
+        batchId: batchId || null, batchNumber: allocations[0]?.batchNumber || null,
+        unitId: item.unitId, unitSymbol: item.unitSymbol, requestedQuantity: item.requestedQuantity,
+        pickedQuantity: pickedQty, dispatchedQuantity: pickedQty,
+        binAllocations: { create: allocations.map((allocation: any) => ({ binId: allocation.binId, productId: allocation.productId,
+          dispatchedQuantity: allocation.pickedQuantity, unitId: allocation.unitId, locationPath: formatLocationPath(allocation.bin) })) } });
+    }
+  }
+  if (!dispatchItemsData.length) throw new Error("Dispatch requires positively picked allocations");
 
   // 5. Create DRAFT Dispatch inside a transaction
   const dispatch = await prisma.$transaction(async (tx: any) => {
@@ -212,8 +204,32 @@ export async function createDispatch(pickListId: string, userId: string, notes?:
  * ATOMICALLY Posts a Dispatch (DRAFT -> POSTED)
  * Performs physical stock deduction, SALE StockMovements, reservation reconciliation, and order completion inside ONE transaction.
  */
-export async function postDispatch(dispatchId: string, userId: string) {
-  return await prisma.$transaction(async (tx: any) => {
+export async function postDispatch(dispatchId: string, userId: string, idempotencyKey?: string) {
+  if (idempotencyKey !== undefined && !/^[A-Za-z0-9_.:-]{1,128}$/.test(idempotencyKey)) throw new Error("Invalid Idempotency-Key");
+  return inventoryTransaction(prisma, async (tx: any) => {
+    // The dispatch document is immutable after posting. An explicit command key
+    // additionally binds retries to this exact document, never another payload.
+    const operationKey = idempotencyKey ? `dispatch-post:${userId}:${idempotencyKey}` : null;
+    const requestHash = createHash("sha256").update(JSON.stringify({ dispatchId })).digest("hex");
+    let previousReceipt: any = null;
+    if (operationKey) {
+      const receipt = await tx.inventoryOperation.findUnique({ where: { operationKey } });
+      if (receipt) {
+        if (receipt.requestHash !== requestHash) throw Object.assign(new Error("Idempotency key payload conflict"), { status: 409 });
+        previousReceipt = receipt;
+      }
+    }
+    const recordReceipt = async (result: any) => {
+      if (operationKey) await tx.inventoryOperation.create({ data: {
+        operationKey, actorId: userId, requestHash, response: JSON.parse(JSON.stringify(result)),
+      } });
+      return result;
+    };
+    const prior = await tx.dispatch.findUnique({ where: { id: dispatchId }, include: { items: true } });
+    if (!prior) throw new Error("Dispatch not found");
+    await authorizeInventoryPosting(tx, userId, prior.warehouseId, "DISPATCH_POST", !previousReceipt && (prior.status !== "POSTED" || !!operationKey));
+    if (previousReceipt) return previousReceipt.response;
+    if (prior.status === "POSTED") return recordReceipt(prior);
     // 1. Fetch & lock Dispatch in DRAFT status via atomic lock
     if (tx.dispatch?.updateMany) {
       const lock = await tx.dispatch.updateMany({
@@ -252,6 +268,7 @@ export async function postDispatch(dispatchId: string, userId: string) {
 
     if (!dispatch) throw new Error("Dispatch not found");
 
+    if (dispatch.pickList.salesOrderId !== dispatch.salesOrderId || dispatch.pickList.warehouseId !== dispatch.warehouseId || dispatch.salesOrder.warehouseId !== dispatch.warehouseId) throw new Error("Dispatch order/pick warehouse scope mismatch");
     // Validate Preconditions
     if (dispatch.pickList.status !== "COMPLETED") {
       throw new Error(`Pick List '${dispatch.pickList.pickListNumber}' must be COMPLETED to post Dispatch.`);
@@ -261,105 +278,38 @@ export async function postDispatch(dispatchId: string, userId: string) {
       throw new Error(`Sales Order '${dispatch.salesOrder.salesOrderNumber}' is in terminal status '${dispatch.salesOrder.status}'.`);
     }
 
-    // 3. Physical Stock Validation & Deduction per item & bin allocation
-    for (const item of dispatch.items) {
-      if (item.dispatchedQuantity <= 0) continue;
-      if (item.dispatchedQuantity > item.pickedQuantity) {
-        throw new Error(`Dispatched quantity (${item.dispatchedQuantity}) exceeds picked quantity (${item.pickedQuantity}) for product '${item.productName}'.`);
-      }
-
-      // Check warehouse physical stock
-      const warehouseAlloc: any = await tx.stockAllocation.findUnique({
-        where: { productId_warehouseId: { productId: item.productId, warehouseId: dispatch.warehouseId } },
-      });
-      const currentWhStock = warehouseAlloc ? Number(warehouseAlloc.quantity) : 0;
-      if (currentWhStock < item.dispatchedQuantity) {
-        throw new Error(
-          `Insufficient physical stock in warehouse for '${item.productName}'. Available: ${currentWhStock}, Required: ${item.dispatchedQuantity}`
-        );
-      }
-
-      // Process bin allocations
-      for (const binAlloc of item.binAllocations) {
-        if (binAlloc.dispatchedQuantity <= 0) continue;
-
-        // Verify bin belongs to warehouse
-        if (binAlloc.bin.warehouseId !== dispatch.warehouseId) {
-          throw new Error(`Source bin '${binAlloc.bin.code}' belongs to warehouse '${binAlloc.bin.warehouseId}', not '${dispatch.warehouseId}'.`);
-        }
-
-        // Verify bin physical stock
-        const locAlloc: any = await tx.stockLocationAllocation.findUnique({
-          where: { productId_binId: { productId: item.productId, binId: binAlloc.binId } },
-        });
-        const currentBinStock = locAlloc ? Number(locAlloc.quantity) : 0;
-        if (currentBinStock < binAlloc.dispatchedQuantity) {
-          throw new Error(
-            `Insufficient physical stock in bin '${binAlloc.bin.code}' for '${item.productName}'. Available: ${currentBinStock}, Required: ${binAlloc.dispatchedQuantity}`
-          );
-        }
-
-        // Execute physical stock mutation via stockService helper
-        const mutationRes = await executeStockMutationInTx(tx, {
-          productId: item.productId,
-          warehouseId: dispatch.warehouseId,
-          sourceBinId: binAlloc.binId,
-          quantity: binAlloc.dispatchedQuantity,
-          unitId: item.unitId,
-          movementType: StockMovementTypes.SALE,
-          referenceType: "DISPATCH",
-          referenceId: dispatch.id,
-          reason: `Dispatch #${dispatch.dispatchNumber} for Sales Order ${dispatch.salesOrder.salesOrderNumber}`,
-          performedBy: userId,
-        });
-
-        // Deduct batch quantity if item or pick allocation has assigned batchId
-        if (item.batchId) {
-          await deductBatchQuantityInTx(tx, item.batchId, binAlloc.dispatchedQuantity);
-          if (mutationRes?.movementId) {
-            await tx.stockMovement.update({
-              where: { id: mutationRes.movementId },
-              data: { batchId: item.batchId, batchNumber: item.batchNumber },
-            });
-          }
-        }
-
-        await tx.auditLog.create({
-          data: {
-            userId,
-            action: "stock_deducted_by_dispatch",
-            entityType: "Dispatch",
-            entityId: dispatch.id,
-            details: {
-              dispatchNumber: dispatch.dispatchNumber,
-              productId: item.productId,
-              productName: item.productName,
-              binId: binAlloc.binId,
-              binCode: binAlloc.bin.code,
-              dispatchedQuantity: binAlloc.dispatchedQuantity,
-              previousBinStock: currentBinStock,
-              newBinStock: currentBinStock - binAlloc.dispatchedQuantity,
-            },
-          },
-        });
-      }
-    }
-
     // 4. Reconcile StockReservation & StockReservationItems
     const reservation: any = await tx.stockReservation.findUnique({
       where: { id: dispatch.pickList.reservationId },
       include: { items: true },
     });
 
+    if (reservation && (reservation.salesOrderId !== dispatch.salesOrderId || reservation.warehouseId !== dispatch.warehouseId)) throw new Error("Dispatch reservation scope mismatch");
+    if (!reservation || !["ACTIVE", "PARTIALLY_FULFILLED"].includes(reservation.status)) throw new Error("Dispatch requires an active reservation");
+    if (dispatch.items.some((di: any) => !reservation.items.some((ri: any) => ri.salesOrderItemId === di.salesOrderItemId && ri.productId === di.productId))) throw new Error("Dispatch line has no matching reservation");
     if (reservation) {
       let allReservationItemsFulfilled = true;
 
       for (const resItem of reservation.items) {
-        const dispatchItem = dispatch.items.find((di: any) => di.productId === resItem.productId);
-        const dispatchedQty = dispatchItem ? dispatchItem.dispatchedQuantity : 0;
+        const matching = dispatch.items.filter((di: any) => di.salesOrderItemId === resItem.salesOrderItemId);
+        let dispatchedQty = 0;
+        for (const di of matching) {
+          if (di.productId !== resItem.productId) throw new Error("Reservation product mismatch");
+          const product = await tx.product.findUnique({ where: { id: di.productId } });
+          dispatchedQty += await convertUnitQuantity({ quantity: di.dispatchedQuantity, fromUnitId: di.unitId || product.unitId, toUnitId: resItem.unitId || product.unitId, productId: di.productId }, tx);
+        }
+        if (dispatchedQty > resItem.remainingQuantity + 1e-8) throw new Error("Dispatch exceeds remaining reservation");
 
-        const newReleasedQty = roundQty(resItem.releasedQuantity + dispatchedQty);
-        const newRemainingQty = roundQty(Math.max(0, resItem.remainingQuantity - dispatchedQty));
+        if (resItem.batchId && dispatchedQty > 0) {
+          if (matching.some((di: any) => di.batchId !== resItem.batchId)) throw new Error("Dispatch batch does not match batch reservation");
+          const product = await tx.product.findUnique({ where: { id: resItem.productId } });
+          const base = await convertUnitQuantity({ quantity: dispatchedQty, fromUnitId: resItem.unitId || product.unitId, toUnitId: product.unitId, productId: resItem.productId }, tx);
+          const batch = await tx.inventoryBatch.findUnique({ where: { id: resItem.batchId } });
+          if (!batch || batch.productId !== resItem.productId || batch.warehouseId !== dispatch.warehouseId || batch.reservedQuantity < base) throw new Error("Inconsistent batch reservation");
+          await releaseBatchReservationInTx(tx, resItem.batchId, base);
+        }
+        const newReleasedQty = resItem.releasedQuantity + dispatchedQty;
+        const newRemainingQty = Math.max(0, resItem.remainingQuantity - dispatchedQty);
 
         await tx.stockReservationItem.update({
           where: { id: resItem.id },
@@ -398,6 +348,106 @@ export async function postDispatch(dispatchId: string, userId: string) {
       });
     }
 
+    // 3. Physical Stock Validation & Deduction per item & bin allocation
+    for (const item of dispatch.items) {
+      if (!Number.isFinite(item.dispatchedQuantity) || item.dispatchedQuantity <= 0 || !Number.isFinite(item.pickedQuantity)) throw new Error("Dispatch quantities must be finite and positive");
+      const product = await validateProductTrackingModeInTx(tx, item.productId, { batchId: item.batchId });
+      const itemBase = await convertUnitQuantity({ quantity: item.dispatchedQuantity, fromUnitId: item.unitId || product.unitId, toUnitId: product.unitId, productId: item.productId }, tx);
+      let allocatedBase = 0;
+      if (!item.binAllocations.length) throw new Error("Dispatch requires bin allocations");
+      for (const allocation of item.binAllocations) {
+        if (!Number.isFinite(allocation.dispatchedQuantity) || allocation.dispatchedQuantity <= 0) throw new Error("Bin quantities must be finite and positive");
+        if (allocation.productId !== item.productId || allocation.bin.warehouseId !== dispatch.warehouseId || !allocation.bin.active) throw new Error("Invalid dispatch bin/product scope");
+        allocatedBase += await convertUnitQuantity({ quantity: allocation.dispatchedQuantity, fromUnitId: allocation.unitId || product.unitId, toUnitId: product.unitId, productId: item.productId }, tx);
+      }
+      if (Math.abs(allocatedBase - itemBase) > 1e-8) throw new Error("Bin allocation sum must equal dispatch base quantity");
+      if (item.batchId) {
+        const batch = await tx.inventoryBatch.findUnique({ where: { id: item.batchId } });
+        if (!batch || batch.productId !== item.productId || batch.warehouseId !== dispatch.warehouseId || batch.status !== "ACTIVE" || batch.quantity < itemBase) throw new Error("Invalid dispatch batch scope or stock");
+      }
+      if (item.dispatchedQuantity > item.pickedQuantity) {
+        throw new Error(`Dispatched quantity (${item.dispatchedQuantity}) exceeds picked quantity (${item.pickedQuantity}) for product '${item.productName}'.`);
+      }
+
+      // Check warehouse physical stock
+      const warehouseAlloc: any = await tx.stockAllocation.findUnique({
+        where: { productId_warehouseId: { productId: item.productId, warehouseId: dispatch.warehouseId } },
+      });
+      const currentWhStock = warehouseAlloc ? Number(warehouseAlloc.quantity) : 0;
+      if (currentWhStock < itemBase) {
+        throw new Error(
+          `Insufficient physical stock in warehouse for '${item.productName}'. Available: ${currentWhStock}, Required: ${item.dispatchedQuantity}`
+        );
+      }
+
+      // Process bin allocations
+      for (const binAlloc of item.binAllocations) {
+        const binBase = await convertUnitQuantity({ quantity: binAlloc.dispatchedQuantity, fromUnitId: binAlloc.unitId || product.unitId, toUnitId: product.unitId, productId: item.productId }, tx);
+
+        // Verify bin belongs to warehouse
+        if (binAlloc.bin.warehouseId !== dispatch.warehouseId) {
+          throw new Error(`Source bin '${binAlloc.bin.code}' belongs to warehouse '${binAlloc.bin.warehouseId}', not '${dispatch.warehouseId}'.`);
+        }
+
+        // Verify bin physical stock
+        const locAlloc: any = await tx.stockLocationAllocation.findUnique({
+          where: { productId_binId: { productId: item.productId, binId: binAlloc.binId } },
+        });
+        const currentBinStock = locAlloc ? Number(locAlloc.quantity) : 0;
+        if (currentBinStock < binBase) {
+          throw new Error(
+            `Insufficient physical stock in bin '${binAlloc.bin.code}' for '${item.productName}'. Available: ${currentBinStock}, Required: ${binAlloc.dispatchedQuantity}`
+          );
+        }
+
+        // Execute physical stock mutation via stockService helper
+        const mutationRes = await executeStockMutationInTx(tx, {
+          productId: item.productId,
+          batchId: item.batchId,
+          batchAccounting: BATCH_MANAGED_IN_TX,
+          warehouseId: dispatch.warehouseId,
+          sourceBinId: binAlloc.binId,
+          quantity: binAlloc.dispatchedQuantity,
+          unitId: binAlloc.unitId,
+          movementType: StockMovementTypes.SALE,
+          referenceType: "DISPATCH",
+          referenceId: dispatch.id,
+          reason: `Dispatch #${dispatch.dispatchNumber} for Sales Order ${dispatch.salesOrder.salesOrderNumber}`,
+          performedBy: userId,
+        });
+
+        // Deduct batch quantity if item or pick allocation has assigned batchId
+        if (item.batchId) {
+          await deductBatchQuantityInTx(tx, item.batchId, binBase);
+          if (mutationRes?.movementId) {
+            await tx.stockMovement.update({
+              where: { id: mutationRes.movementId },
+              data: { batchId: item.batchId, batchNumber: item.batchNumber },
+            });
+          }
+        }
+
+        await tx.auditLog.create({
+          data: {
+            userId,
+            action: "stock_deducted_by_dispatch",
+            entityType: "Dispatch",
+            entityId: dispatch.id,
+            details: {
+              dispatchNumber: dispatch.dispatchNumber,
+              productId: item.productId,
+              productName: item.productName,
+              binId: binAlloc.binId,
+              binCode: binAlloc.bin.code,
+              dispatchedQuantity: binAlloc.dispatchedQuantity,
+              previousBinStock: currentBinStock,
+              newBinStock: currentBinStock - binAlloc.dispatchedQuantity,
+            },
+          },
+        });
+      }
+    }
+
     // 5. Reconcile SalesOrder status
     const salesOrder: any = await tx.salesOrder.findUnique({
       where: { id: dispatch.salesOrderId },
@@ -413,19 +463,18 @@ export async function postDispatch(dispatchId: string, userId: string) {
         include: { items: true },
       });
 
-      const totalDispatchedByProduct = new Map<string, number>();
-      for (const item of dispatch.items) {
-        totalDispatchedByProduct.set(item.productId, (totalDispatchedByProduct.get(item.productId) || 0) + item.dispatchedQuantity);
-      }
-      for (const prevDispatch of postedDispatches) {
-        for (const item of prevDispatch.items || []) {
-          totalDispatchedByProduct.set(item.productId, (totalDispatchedByProduct.get(item.productId) || 0) + item.dispatchedQuantity);
-        }
+      const totalDispatchedByLine = new Map<string, number>();
+      for (const previous of postedDispatches) for (const item of previous.items || []) {
+        const line = salesOrder.items.find((so: any) => so.id === item.salesOrderItemId);
+        if (!line || line.productId !== item.productId) throw new Error("Posted dispatch sales line mismatch");
+        const product = await tx.product.findUnique({ where: { id: item.productId } });
+        const quantity = await convertUnitQuantity({ quantity: item.dispatchedQuantity, fromUnitId: item.unitId || product.unitId, toUnitId: line.unitId || product.unitId, productId: item.productId }, tx);
+        totalDispatchedByLine.set(line.id, (totalDispatchedByLine.get(line.id) || 0) + quantity);
       }
 
       let allOrderItemsDispatched = true;
       for (const soItem of salesOrder.items) {
-        const totalDispatched = totalDispatchedByProduct.get(soItem.productId) || 0;
+        const totalDispatched = totalDispatchedByLine.get(soItem.id) || 0;
         if (totalDispatched < soItem.orderedQuantity) {
           allOrderItemsDispatched = false;
         }
@@ -493,8 +542,8 @@ export async function postDispatch(dispatchId: string, userId: string) {
       },
     });
 
-    return postedDispatch;
-  }, { timeout: 30000 });
+    return recordReceipt(postedDispatch);
+  });
 }
 
 /**
@@ -502,7 +551,8 @@ export async function postDispatch(dispatchId: string, userId: string) {
  * Zero physical stock mutation occurs.
  */
 export async function cancelDispatch(dispatchId: string, reason: string | undefined, userId: string) {
-  const dispatch = await prisma.dispatch.findUnique({
+  return inventoryTransaction(prisma, async (tx: any) => {
+  const dispatch = await tx.dispatch.findUnique({
     where: { id: dispatchId },
   });
 
@@ -511,7 +561,9 @@ export async function cancelDispatch(dispatchId: string, reason: string | undefi
     throw new Error(`Cannot cancel Dispatch in status '${dispatch.status}'. Must be DRAFT.`);
   }
 
-  const cancelled = await prisma.dispatch.update({
+  const lock = await tx.dispatch.updateMany({ where: { id: dispatchId, status: "DRAFT" }, data: { status: "CANCELLED" } });
+  if (lock.count !== 1) throw new Error("Dispatch is no longer DRAFT");
+  const cancelled = await tx.dispatch.update({
     where: { id: dispatchId },
     data: {
       status: "CANCELLED",
@@ -528,7 +580,7 @@ export async function cancelDispatch(dispatchId: string, reason: string | undefi
     },
   });
 
-  await prisma.auditLog.create({
+  await tx.auditLog.create({
     data: {
       userId,
       action: "dispatch_cancelled",
@@ -542,6 +594,7 @@ export async function cancelDispatch(dispatchId: string, reason: string | undefi
   });
 
   return cancelled;
+  });
 }
 
 /**

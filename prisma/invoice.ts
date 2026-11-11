@@ -188,8 +188,9 @@ export async function createInvoice(
 export async function applyStripeChargeToOrderInvoice(
   orderId: string,
   chargeAmount: number,
+  db: any = prisma,
 ): Promise<Prisma.InvoiceGetPayload<Record<string, never>>> {
-  const order = await prisma.order.findUnique({
+  const order = await db.order.findUnique({
     where: { id: orderId },
     include: {
       items: {
@@ -205,13 +206,13 @@ export async function applyStripeChargeToOrderInvoice(
   const productOwnerIds = [
     ...new Set(
       order.items
-        .map((item) => (item as { product?: { userId?: string } }).product?.userId)
+        .map((item: { product?: { userId?: string } }) => item.product?.userId)
         .filter(Boolean),
     ),
   ] as string[];
   const issuerId = productOwnerIds[0] ?? order.userId;
 
-  const existingInvoice = await prisma.invoice.findUnique({
+  const existingInvoice = await db.invoice.findUnique({
     where: { orderId },
   });
 
@@ -226,7 +227,7 @@ export async function applyStripeChargeToOrderInvoice(
       chargeAmount: charge,
       priorStatus: existingInvoice.status,
     });
-    const updated = await prisma.invoice.update({
+    const updated = await db.invoice.update({
       where: { id: existingInvoice.id },
       data: {
         status: next.status,
@@ -262,7 +263,7 @@ export async function applyStripeChargeToOrderInvoice(
   const billingAddress = resolveInvoiceBillingAddressInput(order);
 
   // REQ-0158 — invoice.userId = store owner on order; createdBy = product owner issuer
-  const invoice = await prisma.invoice.create({
+  const invoice = await db.invoice.create({
     data: {
       invoiceNumber,
       orderId,

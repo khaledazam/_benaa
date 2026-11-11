@@ -71,12 +71,12 @@ export async function POST(request: NextRequest) {
     const validationResult = createCategoryBodySchema.safeParse(body);
     if (!validationResult.success) {
       logger.warn("Invalid category creation data", {
-        errors: validationResult.error.errors,
+        errors: validationResult.error.issues,
       });
       return NextResponse.json(
         {
           error: "Invalid request body",
-          details: validationResult.error.errors,
+          details: validationResult.error.issues,
         },
         { status: 400 },
       );
@@ -139,12 +139,12 @@ export async function PUT(request: NextRequest) {
     const validationResult = updateCategoryBodySchema.safeParse(body);
     if (!validationResult.success) {
       logger.warn("Invalid category update data", {
-        errors: validationResult.error.errors,
+        errors: validationResult.error.issues,
       });
       return NextResponse.json(
         {
           error: "Invalid request body",
-          details: validationResult.error.errors,
+          details: validationResult.error.issues,
         },
         { status: 400 },
       );

@@ -3,17 +3,19 @@ import { getSession } from "@/lib/auth-server";
 import { mapSessionToAppUser } from "@/lib/auth/map-session-user";
 import { hasPermission, BuildStockPermissions } from "@/lib/auth/permissions";
 import { lookupProductByBarcode } from "@/lib/inventory/barcodeService";
+import { withWarehouseScope } from '@/lib/auth/warehouse-route-scope';
 
-export async function GET(
+async function scopedGET(
   req: NextRequest,
   { params }: { params: Promise<{ barcode: string }> }
 ) {
   try {
     const session = await getSession();
+    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const user = session ? mapSessionToAppUser(session) : null;
     const role = user?.role || "VIEWER";
 
-    if (!hasPermission(role, BuildStockPermissions.PRODUCT_VIEW)) {
+    if (!hasPermission(user, BuildStockPermissions.PRODUCT_VIEW) || !hasPermission(user, BuildStockPermissions.STOCK_VIEW)) {
       return NextResponse.json({ error: "Forbidden — PRODUCT_VIEW permission required" }, { status: 403 });
     }
 
@@ -31,3 +33,4 @@ export async function GET(
     return NextResponse.json({ error: error.message || "Barcode lookup failed" }, { status: 500 });
   }
 }
+export const GET = withWarehouseScope(scopedGET);

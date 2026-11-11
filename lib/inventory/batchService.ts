@@ -1,4 +1,5 @@
 import { prisma } from "@/prisma/client";
+import { addStock, stockUnits } from "./quantity";
 
 export interface CreateBatchInput {
   productId: string;
@@ -94,7 +95,8 @@ export async function reserveBatchQuantityInTx(
   batchId: string,
   reserveQuantity: number
 ): Promise<any> {
-  if (reserveQuantity <= 0) return null;
+  if (!Number.isFinite(reserveQuantity) || reserveQuantity <= 0) throw new Error("Batch reservation must be positive");
+  stockUnits(reserveQuantity);
 
   const batch = await tx.inventoryBatch.findUnique({ where: { id: batchId } });
   if (!batch) throw new Error(`Inventory batch '${batchId}' not found for reservation.`);
@@ -109,7 +111,7 @@ export async function reserveBatchQuantityInTx(
   const updated = await tx.inventoryBatch.update({
     where: { id: batchId },
     data: {
-      reservedQuantity: { increment: reserveQuantity },
+      reservedQuantity: addStock(batch.reservedQuantity, reserveQuantity),
       updatedAt: new Date(),
     },
   });
@@ -125,12 +127,13 @@ export async function releaseBatchReservationInTx(
   batchId: string,
   releaseQuantity: number
 ): Promise<any> {
-  if (releaseQuantity <= 0) return null;
+  if (!Number.isFinite(releaseQuantity) || releaseQuantity <= 0) throw new Error("Batch release must be positive");
 
   const batch = await tx.inventoryBatch.findUnique({ where: { id: batchId } });
-  if (!batch) return null;
+  if (!batch) throw new Error("Batch reservation not found");
 
-  const newReserved = Math.max(0, batch.reservedQuantity - releaseQuantity);
+  if (releaseQuantity > batch.reservedQuantity) throw new Error("Batch release exceeds reservation");
+  const newReserved = addStock(batch.reservedQuantity, -releaseQuantity);
 
   const updated = await tx.inventoryBatch.update({
     where: { id: batchId },
@@ -151,9 +154,10 @@ export async function createOrUpdateBatchOnReceiptInTx(
   input: CreateBatchInput
 ): Promise<any> {
   const { productId, warehouseId, quantity } = input;
-  if (!productId || !warehouseId || quantity <= 0) {
+  if (!productId || !warehouseId || !Number.isFinite(quantity) || quantity <= 0) {
     throw new Error("Invalid batch receipt input: productId, warehouseId, and positive quantity required.");
   }
+  stockUnits(quantity);
 
   const product = await tx.product.findUnique({ where: { id: productId } });
   if (!product) throw new Error("Product not found");
@@ -174,10 +178,11 @@ export async function createOrUpdateBatchOnReceiptInTx(
   const expDate = input.expiryDate ? new Date(input.expiryDate) : product.expirationDate ? new Date(product.expirationDate) : null;
 
   if (existing) {
+    if (!["ACTIVE", "EXHAUSTED"].includes(existing.status)) throw new Error("Receipt cannot release a quarantined or inactive batch");
     const updated = await tx.inventoryBatch.update({
       where: { id: existing.id },
       data: {
-        quantity: { increment: quantity },
+        quantity: addStock(existing.quantity, quantity),
         lotNumber: input.lotNumber || existing.lotNumber,
         heatNumber: input.heatNumber || existing.heatNumber,
         manufactureDate: mfgDate || existing.manufactureDate,
@@ -218,7 +223,7 @@ export async function deductBatchQuantityInTx(
   batchId: string,
   deductQuantity: number
 ): Promise<any> {
-  if (deductQuantity <= 0) return null;
+  if (!Number.isFinite(deductQuantity) || deductQuantity <= 0) throw new Error("Batch deduction must be positive");
 
   const batch = await tx.inventoryBatch.findUnique({ where: { id: batchId } });
   if (!batch) throw new Error(`Inventory batch '${batchId}' not found`);
@@ -230,7 +235,7 @@ export async function deductBatchQuantityInTx(
     );
   }
 
-  const newQty = batch.quantity - deductQuantity;
+  const newQty = addStock(batch.quantity, -deductQuantity);
   const newStatus = newQty <= 0 ? "EXHAUSTED" : batch.status;
 
   const updated = await tx.inventoryBatch.update({

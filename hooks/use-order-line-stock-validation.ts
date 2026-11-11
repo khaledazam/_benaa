@@ -5,7 +5,7 @@
 
 import { useMemo } from "react";
 import { useStockByProduct } from "@/hooks/queries";
-import { getDisplayCommittedQuantity } from "@/lib/products/enrich-product-committed-quantity";
+import { getDisplayCommittedQuantity } from "@/lib/products/committed-quantity-display";
 import {
   mapStockAllocationsToOrderLineRows,
   resolveOrderLineHasAllocations,

@@ -1,4 +1,5 @@
 import { prisma } from "@/prisma/client";
+import { getStockAvailabilityInTx } from './availability';
 
 export interface BarcodeLookupResult {
   product: any;
@@ -34,7 +35,7 @@ export async function lookupProductByBarcode(
         { barcode: cleanedCode },
         { sku: cleanedCode },
       ],
-      deletedAt: null,
+      AND: [{ OR: [{ deletedAt: null }, { deletedAt: { isSet: false } }] }],
     },
   });
 
@@ -52,7 +53,7 @@ export async function lookupProductByBarcode(
     }
   }
 
-  if (!product) return null;
+  if (!product || product.deletedAt) return null;
 
   // Load warehouse stock allocations
   const saWhere: any = { productId: product.id };
@@ -69,10 +70,11 @@ export async function lookupProductByBarcode(
   });
   const warehouseMap = new Map(warehouses.map((w) => [w.id, w.name]));
 
-  const warehouseAllocations = allocations.map((a) => {
-    const physical = a.quantity || 0;
-    const reserved = a.reservedQuantity || 0;
-    const available = Math.max(0, physical - reserved);
+  const warehouseAllocations = await Promise.all(allocations.map(async (a) => {
+    const availability = await getStockAvailabilityInTx(prisma, product.id, a.warehouseId);
+    const physical = availability.physicalStock;
+    const reserved = availability.reservedStock;
+    const available = availability.availableStock;
     return {
       warehouseId: a.warehouseId,
       warehouseName: warehouseMap.get(a.warehouseId) || "Warehouse",
@@ -80,13 +82,13 @@ export async function lookupProductByBarcode(
       reservedQuantity: reserved,
       availableQuantity: available,
     };
-  });
+  }));
 
   const totalPhysicalStock = warehouseAllocations.reduce((sum, a) => sum + a.physicalQuantity, 0);
   const totalAvailableStock = warehouseAllocations.reduce((sum, a) => sum + a.availableQuantity, 0);
 
   return {
-    product,
+    product: warehouseIdFilter ? { ...product, quantity: totalPhysicalStock, reservedQuantity: totalPhysicalStock - totalAvailableStock } : product,
     exactMatchField: matchField,
     warehouseAllocations,
     totalPhysicalStock,

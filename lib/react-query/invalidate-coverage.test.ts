@@ -72,6 +72,8 @@ const DOMAIN_KEYS_REQUIRE_ALL = [
  * At least one listed pattern must appear in the route file body.
  */
 const API_WRITE_ROUTE_INVALIDATION_SPEC: Record<string, readonly string[]> = {
+  "app/api/sales-orders/[id]/invoice/route.ts": ["scheduleInvalidateInvoiceCaches"],
+  "app/api/projects/material-issues/route.ts": ["scheduleInvalidateStockAllocationCaches"],
   "app/api/products/route.ts": ["invalidateOnProductChange", "scheduleAfterResponse"],
   "app/api/products/import/route.ts": ["scheduleInvalidateImportCaches"],
   "app/api/products/image/route.ts": ["scheduleInvalidateProductCaches"],
@@ -97,7 +99,10 @@ const API_WRITE_ROUTE_INVALIDATION_SPEC: Record<string, readonly string[]> = {
   "app/api/users/[id]/route.ts": ["scheduleInvalidateUserCaches"],
   "app/api/user/email-preferences/route.ts": ["scheduleInvalidateEmailPreferenceCaches"],
   "app/api/system-config/route.ts": ["invalidateCache(", "scheduleInvalidateSystemConfigCaches"],
-  "app/api/auth/register/route.ts": ["scheduleInvalidateAuthCaches"],
+  "app/api/admin/employees/route.ts": ["scheduleInvalidateUserCaches"],
+  "app/api/inventory/transfers/lifecycle/route.ts": ["scheduleInvalidateStockAllocationCaches"],
+  "app/api/mobile-sync/route.ts": ["scheduleInvalidateStockAllocationCaches"],
+  "app/api/products/[id]/route.ts": ["invalidateOnProductChange"],
   "app/api/payments/checkout/route.ts": ["scheduleInvalidateOrderGraphCaches"],
   "app/api/payments/confirm-session/route.ts": ["confirmCheckoutSessionById"],
   "app/api/payments/webhook/route.ts": [
@@ -106,7 +111,6 @@ const API_WRITE_ROUTE_INVALIDATION_SPEC: Record<string, readonly string[]> = {
   ],
   "app/api/shipping/labels/route.ts": ["invalidateOnOrderChange"],
   "app/api/shipping/tracking/route.ts": ["invalidateOnOrderChange"],
-  "app/api/shipping/webhook/route.ts": ["invalidateOnOrderChange"],
   "app/api/notifications/in-app/[id]/route.ts": ["scheduleInvalidateNotificationCaches"],
   "app/api/notifications/in-app/mark-all-read/route.ts": ["scheduleInvalidateNotificationCaches"],
 };
@@ -134,7 +138,20 @@ const DOMAIN_KEYS_REQUIRE_LISTS = [
 
 /** API write routes that do not mutate cached inventory data (no Redis invalidation required) */
 const API_WRITE_EXEMPT = new Set([
+  // HTTP seeding is unconditionally disabled and performs no writes.
+  "app/api/seed/route.ts",
+  // Project metadata has no Redis-backed reads; issue posting invalidates stock.
+  "app/api/projects/route.ts",
+  // Disabled public provisioning performs no writes; regression tested in auth suite.
+  "app/api/auth/register/route.ts",
+  // Disabled until provider authentication is implemented; no order mutation occurs.
+  "app/api/shipping/webhook/route.ts",
+  // Private process-local AI cache and user read/dismiss state, no Redis-backed entities.
+  "app/api/ai/benaa-intelligence/route.ts",
   "app/api/auth/login/route.ts",
+  // Mobile grant rotation updates authentication state only. Authorization is
+  // re-read from MongoDB on every request; no cached inventory graph is changed.
+  "app/api/auth/refresh/route.ts",
   "app/api/auth/logout/route.ts",
   "app/api/ai/insights/route.ts",
   "app/api/shipping/rates/route.ts",
@@ -265,7 +282,7 @@ function hasServerInvalidation(content: string): boolean {
 }
 
 function hasWriteHandler(content: string): boolean {
-  return /export async function (POST|PUT|PATCH|DELETE)\b/.test(content);
+  return /export (?:async function (?:POST|PUT|PATCH|DELETE)\b|const (?:POST|PUT|PATCH|DELETE)\s*=)/.test(content);
 }
 
 describe("mutation invalidation coverage (hooks/queries)", () => {

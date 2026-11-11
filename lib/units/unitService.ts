@@ -45,66 +45,29 @@ export async function convertUnitQuantity(params: {
   fromUnitId?: string | null;
   toUnitId?: string | null;
   productId?: string | null;
-}): Promise<number> {
+}, db: any = prisma): Promise<number> {
   const { quantity, fromUnitId, toUnitId, productId } = params;
-
-  if (!fromUnitId || !toUnitId || fromUnitId === toUnitId || quantity === 0) {
-    return quantity;
-  }
-
-  // 1. Check for product-specific conversion first
-  if (productId) {
-    const productConversion = await prisma.unitConversion.findFirst({
-      where: {
-        productId,
-        fromUnitId,
-        toUnitId,
-      },
-    });
-
-    if (productConversion) {
-      return quantity * productConversion.factor;
-    }
-
-    // Check inverse product conversion
-    const inverseProductConversion = await prisma.unitConversion.findFirst({
-      where: {
-        productId,
-        fromUnitId: toUnitId,
-        toUnitId: fromUnitId,
-      },
-    });
-
-    if (inverseProductConversion && inverseProductConversion.factor > 0) {
-      return quantity / inverseProductConversion.factor;
+  if (!Number.isFinite(quantity) || quantity <= 0) throw new Error("Quantity must be positive and finite");
+  // Historical unitless products remain unitless; never infer a missing conversion.
+  if (!fromUnitId && !toUnitId) return quantity;
+  if (!fromUnitId || !toUnitId) throw new Error("Source and destination units are required for conversion");
+  const fromUnit = await db.unit.findUnique({ where: { id: fromUnitId } });
+  const toUnit = fromUnitId === toUnitId ? fromUnit : await db.unit.findUnique({ where: { id: toUnitId } });
+  if (!fromUnit || !toUnit || !fromUnit.active || !toUnit.active) throw new Error("Conversion requires existing active units");
+  if (fromUnit.type !== toUnit.type) throw new Error("Cannot convert units of different dimensions");
+  if (fromUnitId === toUnitId) return quantity;
+  for (const owner of productId ? [productId, null] : [null]) {
+    for (const inverse of [false, true]) {
+      const conversions = await db.unitConversion.findMany({ where: {
+        productId: owner, fromUnitId: inverse ? toUnitId : fromUnitId, toUnitId: inverse ? fromUnitId : toUnitId,
+      } });
+      if (!conversions.length) continue;
+      if (conversions.some((c: any) => !Number.isFinite(c.factor) || c.factor <= 0)) throw new Error("Conversion factor must be positive and finite");
+      if (conversions.some((c: any) => c.factor !== conversions[0].factor)) throw new Error("Ambiguous unit conversion factors");
+      const result = inverse ? quantity / conversions[0].factor : quantity * conversions[0].factor;
+      if (!Number.isFinite(result) || result <= 0) throw new Error("Converted quantity must be positive and finite");
+      return result;
     }
   }
-
-  // 2. Check for global unit conversion
-  const globalConversion = await prisma.unitConversion.findFirst({
-    where: {
-      productId: null,
-      fromUnitId,
-      toUnitId,
-    },
-  });
-
-  if (globalConversion) {
-    return quantity * globalConversion.factor;
-  }
-
-  const inverseGlobalConversion = await prisma.unitConversion.findFirst({
-    where: {
-      productId: null,
-      fromUnitId: toUnitId,
-      toUnitId: fromUnitId,
-    },
-  });
-
-  if (inverseGlobalConversion && inverseGlobalConversion.factor > 0) {
-    return quantity / inverseGlobalConversion.factor;
-  }
-
-  // Default fallback: return quantity unchanged if no conversion registered
-  return quantity;
+  throw new Error("No registered unit conversion exists");
 }

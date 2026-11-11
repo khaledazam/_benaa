@@ -1,3 +1,4 @@
+import { withWarehouseScope } from "@/lib/auth/warehouse-route-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth-server";
 import { mapSessionToAppUser } from "@/lib/auth/map-session-user";
@@ -6,16 +7,17 @@ import { updateAllocationSchema } from "@/lib/validations/picking-validations";
 import { prisma } from "@/prisma/client";
 import { roundQty } from "@/lib/picking/pickingService";
 
-export async function PATCH(
+async function scopedPATCH(
   req: NextRequest,
   context: { params: Promise<{ id: string; allocationId: string }> }
 ) {
   try {
     const session = await getSession();
+    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const user = session ? mapSessionToAppUser(session) : null;
     const role = user?.role || "VIEWER";
 
-    if (!hasPermission(role, BuildStockPermissions.PICK_LIST_UPDATE)) {
+    if (!hasPermission(user, BuildStockPermissions.PICK_LIST_UPDATE)) {
       return NextResponse.json({ error: "Forbidden: Insufficient permissions to update Pick Allocation" }, { status: 403 });
     }
 
@@ -114,3 +116,5 @@ export async function PATCH(
     return NextResponse.json({ error: error.message || "Failed to update allocation" }, { status: 400 });
   }
 }
+
+export const PATCH = withWarehouseScope(scopedPATCH);

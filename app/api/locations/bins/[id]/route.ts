@@ -1,9 +1,10 @@
+import { withWarehouseScope } from "@/lib/auth/warehouse-route-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/requireRole";
 import { deactivateBin } from "@/lib/locations/locationService";
 import { BuildStockPermissions } from "@/lib/auth/permissions";
 
-export async function DELETE(
+async function scopedDELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -18,3 +19,4 @@ export async function DELETE(
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
 }
+export const DELETE = withWarehouseScope(scopedDELETE);

@@ -1,3 +1,6 @@
+import { archiveEmptyProduct } from "@/lib/inventory/archiveProduct";
+import { ManualMovementError } from "@/lib/inventory/manualMovement";
+import { hasPermission } from "@/lib/auth/permissions";
 /**
  * Products API Route Handler
  * GET: list products (admin by userId, supplier by supplierId); uses Redis cache; supplier response includes productOwnerName.
@@ -71,6 +74,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: responseHeaders });
     }
 
+    if (!hasPermission(session, 'PRODUCT_VIEW')) return NextResponse.json({ error: 'Forbidden product access' }, { status: 403, headers: responseHeaders });
     const isSupplier = session.role === "supplier";
     let cacheKey: string;
     let productWhere: { userId: string } | { supplierId: string };
@@ -196,6 +200,7 @@ export async function POST(request: NextRequest) {
     if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    if (!hasPermission(session, "PRODUCT_CREATE")) return NextResponse.json({ error: "Forbidden product operation" }, { status: 403 });
     if (session.role === "supplier") {
       return NextResponse.json(
         { error: "Suppliers cannot create products; only admins can." },
@@ -209,12 +214,12 @@ export async function POST(request: NextRequest) {
     const validationResult = createProductBodySchema.safeParse(body);
     if (!validationResult.success) {
       logger.warn("Invalid product creation data", {
-        errors: validationResult.error.errors,
+        errors: validationResult.error.issues,
       });
       return NextResponse.json(
         {
           error: "Invalid request body",
-          details: validationResult.error.errors,
+          details: validationResult.error.issues,
         },
         { status: 400 },
       );
@@ -228,11 +233,18 @@ export async function POST(request: NextRequest) {
       status,
       categoryId,
       supplierId,
+      unitId,
       imageUrl,
       imageFileId,
       expirationDate,
     } = validationResult.data;
 
+    if (quantity !== 0) return NextResponse.json({ error: "Create catalog metadata with zero stock; post opening stock through the inventory movement engine" }, { status: 409 });
+
+    if (unitId) {
+      const unit = await prisma.unit.findUnique({ where: { id: unitId } });
+      if (!unit?.active) return NextResponse.json({ error: "Registered active base unit is required" }, { status: 400 });
+    }
     // Check if SKU already exists
     const existingProduct = await prisma.product.findUnique({
       where: { sku },
@@ -257,6 +269,7 @@ export async function POST(request: NextRequest) {
         createdBy: userId, // Set createdBy same as userId
         categoryId,
         supplierId,
+        unitId: unitId || null,
         imageUrl: imageUrl || null,
         imageFileId: imageFileId || null,
         expirationDate: expirationDate ? new Date(expirationDate) : null,
@@ -342,6 +355,7 @@ export async function POST(request: NextRequest) {
       id: product.id,
       name: product.name,
       sku: product.sku,
+      unitId: product.unitId,
       price: Number(product.price),
       quantity: Number(product.quantity),
       status: product.status,
@@ -377,6 +391,7 @@ export async function PUT(request: NextRequest) {
     if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    if (!hasPermission(session, "PRODUCT_UPDATE")) return NextResponse.json({ error: "Forbidden product operation" }, { status: 403 });
     if (session.role === "supplier") {
       return NextResponse.json(
         { error: "Suppliers cannot update products; only admins can." },
@@ -390,12 +405,12 @@ export async function PUT(request: NextRequest) {
     const validationResult = updateProductBodySchema.safeParse(body);
     if (!validationResult.success) {
       logger.warn("Invalid product update data", {
-        errors: validationResult.error.errors,
+        errors: validationResult.error.issues,
       });
       return NextResponse.json(
         {
           error: "Invalid request body",
-          details: validationResult.error.errors,
+          details: validationResult.error.issues,
         },
         { status: 400 },
       );
@@ -491,67 +506,8 @@ export async function PUT(request: NextRequest) {
         }
       | undefined;
 
-    if (quantityChanged) {
-      const allocationRows = await getStockAllocationsByProduct(id);
-      const reconcilePlan = planCatalogQuantityReconcile({
-        currentCatalog: Number(existingProduct.quantity),
-        newCatalog: quantity,
-        productReserved: Number(existingProduct.reservedQuantity ?? 0),
-        allocations: allocationRows.map((row) => ({
-          id: row.id,
-          quantity: Number(row.quantity),
-          reservedQuantity: Number(row.reservedQuantity ?? 0),
-          warehouseId: row.warehouseId,
-        })),
-      });
-
-      if (!reconcilePlan.ok) {
-        return NextResponse.json(
-          {
-            error: reconcilePlan.blockedReason,
-            reservedCommitment: reconcilePlan.reservedCommitment,
-            totalAllocated: reconcilePlan.totalAllocated,
-            reducible: reconcilePlan.reducible,
-            overage: reconcilePlan.overage,
-          },
-          { status: 409 },
-        );
-      }
-
-      if (reconcilePlan.shrinkSteps.length > 0) {
-        stockReconcile = await applyCatalogQuantityReconcile({
-          productId: id,
-          newCatalog: quantity,
-          shrinkSteps: reconcilePlan.shrinkSteps,
-          productUpdate: productUpdateData,
-        });
-        // REQ-0225 — client patches warehouse/product stock caches from steps
-        stockReconcile = {
-          ...stockReconcile,
-          shrinkSteps: reconcilePlan.shrinkSteps.map((step) => ({
-            id: step.id,
-            deduct: step.deduct,
-            warehouseId: step.warehouseId,
-            productId: id,
-          })),
-        };
-      } else {
-        await prisma.product.update({
-          where: { id },
-          data: {
-            ...productUpdateData,
-            quantity: BigInt(quantity) as never,
-          },
-        });
-      }
-
-      await scheduleInvalidateStockAllocationCaches();
-    } else {
-      await prisma.product.update({
-        where: { id },
-        data: productUpdateData,
-      });
-    }
+    if (quantityChanged) return NextResponse.json({ error: "Stock quantities require an approved warehouse inventory adjustment" }, { status: 409 });
+    await prisma.product.update({ where: { id }, data: productUpdateData });
 
     const product = await prisma.product.findUniqueOrThrow({ where: { id } });
 
@@ -578,9 +534,9 @@ export async function PUT(request: NextRequest) {
     }).catch(() => {});
 
     // Fetch category and supplier data for the response
-    const category = await prisma.category.findUnique({
+    const category = product.categoryId ? await prisma.category.findUnique({
       where: { id: product.categoryId },
-    });
+    }) : null;
     const supplier = await prisma.supplier.findUnique({
       where: { id: product.supplierId },
     });
@@ -718,217 +674,18 @@ export async function PUT(request: NextRequest) {
  * Hard-delete when no order history; soft-delete (archive) when only completed orders exist.
  */
 export async function DELETE(request: NextRequest) {
-  try {
-    const session = await getSessionFromRequest(request);
-    if (!session) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    if (session.role === "supplier") {
-      return NextResponse.json(
-        { error: "Suppliers cannot delete products; only admins can." },
-        { status: 403 },
-      );
-    }
-
-    const userId = session.id;
-    const { searchParams } = new URL(request.url);
-    const id = searchParams.get("id");
-
-    if (!id) {
-      return NextResponse.json(
-        { error: "Product ID is required" },
-        { status: 400 },
-      );
-    }
-
-    const existingProduct = await prisma.product.findFirst({
-      where: mergeProductListWhere({ id, userId }),
-    });
-
-    if (!existingProduct) {
-      return NextResponse.json(
-        { error: "Product not found, already archived, or unauthorized" },
-        { status: 404 },
-      );
-    }
-
-    const orderItems = await prisma.orderItem.findMany({
-      where: { productId: id },
-      include: {
-        order: {
-          select: {
-            id: true,
-            orderNumber: true,
-            status: true,
-            invoice: {
-              select: {
-                id: true,
-                invoiceNumber: true,
-                status: true,
-              },
-            },
-          },
-        },
-      },
-    });
-
-    const strategy = getDeleteStrategy(orderItems);
-
-    if (strategy === "block") {
-      const activeOrders = orderItems
-        .filter((item) => isActiveOrderStatus(item.order.status))
-        .map((item) => item.order);
-
-      const uniqueActiveOrders = Array.from(
-        new Map(activeOrders.map((order) => [order.id, order])).values(),
-      );
-
-      const ordersWithInvoices = uniqueActiveOrders.filter(
-        (order) => order.invoice,
-      );
-
-      let errorMessage = `Cannot delete product "${existingProduct.name}" because `;
-      const reasons: string[] = [];
-      const statusCounts: Record<string, number> = {};
-      uniqueActiveOrders.forEach((order) => {
-        statusCounts[order.status] = (statusCounts[order.status] || 0) + 1;
-      });
-
-      const statusMessages = Object.entries(statusCounts).map(
-        ([status, count]) =>
-          `${count} ${status} order${count > 1 ? "s" : ""}`,
-      );
-      reasons.push(
-        `it has ${uniqueActiveOrders.length} active order${uniqueActiveOrders.length > 1 ? "s" : ""} (${statusMessages.join(", ")})`,
-      );
-
-      if (ordersWithInvoices.length > 0) {
-        reasons.push(
-          `${ordersWithInvoices.length} invoice${ordersWithInvoices.length > 1 ? "s" : ""} ${ordersWithInvoices.length > 1 ? "are" : "is"} associated with ${ordersWithInvoices.length > 1 ? "these orders" : "this order"}`,
-        );
-      }
-
-      const completedOrders = orderItems.filter(
-        (item) => !isActiveOrderStatus(item.order.status),
-      );
-      if (completedOrders.length > 0) {
-        const uniqueCompletedOrders = Array.from(
-          new Map(
-            completedOrders.map((item) => [item.order.id, item.order]),
-          ).values(),
-        );
-        reasons.push(
-          `Additionally, there ${uniqueCompletedOrders.length > 1 ? "are" : "is"} ${uniqueCompletedOrders.length} completed order${uniqueCompletedOrders.length > 1 ? "s" : ""} (delivered/cancelled) in the system history`,
-        );
-      }
-
-      errorMessage += `${reasons.join(". ")}. Please wait until all active orders are delivered or cancelled before deleting this product.`;
-
-      return NextResponse.json(
-        {
-          error: errorMessage,
-          details: {
-            activeOrdersCount: uniqueActiveOrders.length,
-            invoicesCount: ordersWithInvoices.length,
-            totalOrdersCount: Array.from(
-              new Map(
-                orderItems.map((item) => [item.order.id, item.order]),
-              ).values(),
-            ).length,
-            activeOrderStatuses: Object.fromEntries(
-              Object.entries(
-                uniqueActiveOrders.reduce(
-                  (acc, order) => {
-                    acc[order.status] = (acc[order.status] || 0) + 1;
-                    return acc;
-                  },
-                  {} as Record<string, number>,
-                ),
-              ),
-            ),
-          },
-        },
-        { status: 409 },
-      );
-    }
-
-    if (strategy === "soft") {
-      await prisma.product.update({
-        where: { id },
-        data: {
-          deletedAt: new Date(),
-          deletedBy: session.id,
-          updatedAt: new Date(),
-          updatedBy: session.id,
-        },
-      });
-
-      createAuditLog({
-        userId: session.id,
-        action: "delete",
-        entityType: "product",
-        entityId: id,
-        details: {
-          productName: existingProduct.name,
-          mode: "soft",
-        },
-      }).catch(() => {});
-
-      await invalidateOnProductChange();
-      return NextResponse.json({ success: true, mode: "soft" as const });
-    }
-
-    // Hard delete: DB first (fast response), ImageKit cleanup deferred after response
-    await prisma.stockAllocation.deleteMany({ where: { productId: id } });
-
-    await prisma.product.delete({
-      where: { id },
-    });
-
-    const mediaSnapshot = {
-      qrCodeFileId: existingProduct.qrCodeFileId,
-      imageFileId: existingProduct.imageFileId,
-    };
-    scheduleAfterResponse(async () => {
-      try {
-        await cleanupProductMediaFromImageKit(mediaSnapshot);
-      } catch (error) {
-        if (!isImageKitNotFoundError(error)) {
-          logger.warn(
-            `Deferred ImageKit cleanup after hard delete failed for product ${id}:`,
-            error,
-          );
-        }
-      }
-    }, "product-hard-delete-imagekit");
-
-    createAuditLog({
-      userId: session.id,
-      action: "delete",
-      entityType: "product",
-      entityId: id,
-      details: { productName: existingProduct.name, mode: "hard" },
-    }).catch(() => {});
-    await invalidateOnProductChange();
-    return NextResponse.json({ success: true, mode: "hard" as const });
-  } catch (error) {
-    logger.error("Error deleting product:", error);
-
-    if (isPrismaRelationViolation(error)) {
-      return NextResponse.json(
-        {
-          error:
-            "Product cannot be removed because it is linked to order history. Products with past orders are archived instead of permanently deleted.",
-        },
-        { status: 409 },
-      );
-    }
-
-    return NextResponse.json(
-      { error: "Failed to delete product. Please try again later." },
-      { status: 500 },
-    );
-  }
+ const session = await getSessionFromRequest(request);
+ if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+ if (!hasPermission(session, "PRODUCT_DELETE")) return NextResponse.json({ error: "Forbidden product operation" }, { status: 403 });
+ const id = new URL(request.url).searchParams.get("id");
+ if (!id || !/^[a-f0-9]{24}$/i.test(id)) return NextResponse.json({ error: "Valid product ID is required" }, { status: 400 });
+ try {
+  const result = await archiveEmptyProduct(prisma, session.id, id);
+  await invalidateOnProductChange();
+  return NextResponse.json(result);
+ } catch(error: any) {
+  return NextResponse.json({ error: error instanceof ManualMovementError ? error.message : "Product archival failed safely" }, { status: error instanceof ManualMovementError ? error.status : 409 });
+ }
 }
 
 export async function OPTIONS(request: NextRequest) {

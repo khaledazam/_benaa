@@ -4,59 +4,30 @@
  */
 
 import { prisma } from "@/prisma/client";
-import { getReservedCommitment } from "@/lib/stock-allocation/catalog-quantity-reconcile";
+import { withCommittedQuantity } from "./committed-quantity-display";
+export { computeCommittedQuantity, withCommittedQuantity, getDisplayCommittedQuantity } from "./committed-quantity-display";
+export type { ProductWithCommittedFields } from "./committed-quantity-display";
+import { ACTIVE_SALES_RESERVATIONS, ACTIVE_PROJECT_ISSUES, salesReservationBaseQuantity, validReservedQuantity } from "@/lib/inventory/reservation-quantities";
+import { addStock } from "@/lib/inventory/quantity";
 
-/** Sum allocation.reservedQuantity per product (one query). */
+/** Sum disjoint allocation, ERP sales, and project commitments in base units. Historical exported name is retained for server callers. */
 export async function batchSumAllocationReserved(
   productIds: string[],
 ): Promise<Map<string, number>> {
   const sums = new Map<string, number>();
   if (productIds.length === 0) return sums;
 
-  const rows = await prisma.stockAllocation.findMany({
-    where: { productId: { in: productIds } },
-    select: { productId: true, reservedQuantity: true },
-  });
-
-  for (const row of rows) {
-    const prev = sums.get(row.productId) ?? 0;
-    sums.set(row.productId, prev + Number(row.reservedQuantity ?? 0));
-  }
+  const [rows, sales, projects] = await Promise.all([
+    prisma.stockAllocation.findMany({ where: { productId: { in: productIds } }, select: { productId: true, reservedQuantity: true } }),
+    prisma.stockReservationItem.findMany({ where: { productId: { in: productIds }, reservation: { status: { in: ACTIVE_SALES_RESERVATIONS } } }, include: { product: { select: { id: true, unitId: true } } } }),
+    prisma.projectMaterialIssueItem.findMany({ where: { productId: { in: productIds }, issue: { status: { in: ACTIVE_PROJECT_ISSUES } } }, select: { productId: true, remainingQuantity: true } }),
+  ]);
+  const add = (productId: string, quantity: number) => sums.set(productId, addStock(sums.get(productId) ?? 0, validReservedQuantity(quantity)));
+  for (const row of rows) add(row.productId, row.reservedQuantity ?? 0);
+  for (const item of sales) add(item.productId, await salesReservationBaseQuantity(prisma, item, item.product));
+  for (const item of projects) add(item.productId, item.remainingQuantity);
 
   return sums;
-}
-
-/** Effective pending commitment for list display (disjoint paths summed). */
-export function computeCommittedQuantity(
-  productReserved: number,
-  allocationReservedSum: number,
-): number {
-  return getReservedCommitment(productReserved, [
-    {
-      id: "sum",
-      quantity: 0,
-      reservedQuantity: allocationReservedSum,
-    },
-  ]);
-}
-
-export type ProductWithCommittedFields = {
-  reservedQuantity?: number | null;
-  committedQuantity?: number;
-};
-
-/** Attach committedQuantity without mutating reservedQuantity. */
-export function withCommittedQuantity<
-  T extends { id: string; reservedQuantity?: number | null },
->(product: T, allocationReservedSum: number): T & { committedQuantity: number } {
-  const productReserved = Number(product.reservedQuantity ?? 0);
-  return {
-    ...product,
-    committedQuantity: computeCommittedQuantity(
-      productReserved,
-      allocationReservedSum,
-    ),
-  };
 }
 
 /** Batch-enrich a product list response. */
@@ -85,11 +56,3 @@ export async function enrichProductDetailWithCommittedQuantity<
   );
 }
 
-/** Read committed qty from a list row (display-only). */
-export function getDisplayCommittedQuantity(
-  product: ProductWithCommittedFields,
-): number {
-  return (
-    product.committedQuantity ?? Number(product.reservedQuantity ?? 0)
-  );
-}

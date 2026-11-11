@@ -23,10 +23,10 @@ export default async function AdminProductDetailPage({ params }: Props) {
 
   const [initialProduct, initialReviews, initialEligibility, initialStockByProduct, initialForecasting] =
     await Promise.all([
-      getProductDetailForPage({ id: user.id, role: user.role }, id),
+      getProductDetailForPage(user, id),
       getReviewsForProductPage(id, "all"),
       getReviewEligibilityForProduct(user.id, id),
-      getStockByProductForPage({ id: user.id, role: user.role }, id),
+      getStockByProductForPage(user, id),
       user.role === "admin"
         ? getCachedForecastingSummary(user.id)
         : Promise.resolve(null),

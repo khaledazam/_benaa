@@ -3,7 +3,7 @@
  * REQ-0141 — name · SKU on line 1; category link · stock · price on line 2.
  */
 
-import { getDisplayCommittedQuantity } from "@/lib/products/enrich-product-committed-quantity";
+import { getDisplayCommittedQuantity } from "@/lib/products/committed-quantity-display";
 
 import Link from "next/link";
 import {

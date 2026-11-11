@@ -1,3 +1,4 @@
+import { withWarehouseScope } from "@/lib/auth/warehouse-route-scope";
 /**
  * Warehouses API Route Handler
  * App Router route handler for warehouse CRUD operations
@@ -21,7 +22,7 @@ import { scheduleInvalidateWarehouseCaches } from "@/lib/cache";
  * GET /api/warehouses
  * Fetch all warehouses for the authenticated user
  */
-export async function GET(request: NextRequest) {
+async function scopedGET(request: NextRequest) {
   try {
     const responseHeaders = createCorsHeaders(request);
 
@@ -58,7 +59,7 @@ export async function GET(request: NextRequest) {
  * POST /api/warehouses
  * Create a new warehouse
  */
-export async function POST(request: NextRequest) {
+async function scopedPOST(request: NextRequest) {
   try {
     const session = await getSessionFromRequest(request);
     if (!session) {
@@ -71,12 +72,12 @@ export async function POST(request: NextRequest) {
     const validationResult = createWarehouseBodySchema.safeParse(body);
     if (!validationResult.success) {
       logger.warn("Invalid warehouse creation data", {
-        errors: validationResult.error.errors,
+        errors: validationResult.error.issues,
       });
       return NextResponse.json(
         {
           error: "Invalid request body",
-          details: validationResult.error.errors,
+          details: validationResult.error.issues,
         },
         { status: 400 },
       );
@@ -122,7 +123,7 @@ export async function POST(request: NextRequest) {
  * PUT /api/warehouses
  * Update an existing warehouse
  */
-export async function PUT(request: NextRequest) {
+async function scopedPUT(request: NextRequest) {
   try {
     const session = await getSessionFromRequest(request);
     if (!session) {
@@ -135,12 +136,12 @@ export async function PUT(request: NextRequest) {
     const validationResult = updateWarehouseBodySchema.safeParse(body);
     if (!validationResult.success) {
       logger.warn("Invalid warehouse update data", {
-        errors: validationResult.error.errors,
+        errors: validationResult.error.issues,
       });
       return NextResponse.json(
         {
           error: "Invalid request body",
-          details: validationResult.error.errors,
+          details: validationResult.error.issues,
         },
         { status: 400 },
       );
@@ -210,7 +211,7 @@ export async function PUT(request: NextRequest) {
  * DELETE /api/warehouses
  * Delete a warehouse
  */
-export async function DELETE(request: NextRequest) {
+async function scopedDELETE(request: NextRequest) {
   try {
     const session = await getSessionFromRequest(request);
     if (!session) {
@@ -279,3 +280,8 @@ export async function DELETE(request: NextRequest) {
 export async function OPTIONS(request: NextRequest) {
   return handleCorsPreflight(request);
 }
+
+export const GET = withWarehouseScope(scopedGET);
+export const POST = withWarehouseScope(scopedPOST);
+export const PUT = withWarehouseScope(scopedPUT);
+export const DELETE = withWarehouseScope(scopedDELETE);

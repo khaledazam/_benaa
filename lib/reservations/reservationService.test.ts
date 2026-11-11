@@ -9,7 +9,7 @@ const mockProductTile = {
   sku: "TILE-PORC",
   price: 45.0,
   unitId: "unit-m2",
-  size: "m²",
+  size: "m²", quantity: 100, reservedQuantity: 0,
 };
 
 const mockProductPaint = {
@@ -18,12 +18,12 @@ const mockProductPaint = {
   sku: "PAINT-ACR",
   price: 25.0,
   unitId: "unit-L",
-  size: "L",
+  size: "L", quantity: 30, reservedQuantity: 0,
 };
 
 const mockStockAllocations = [
-  { id: "alloc-tile", productId: "prod-tile", warehouseId: "wh-1", quantity: 100.0 },
-  { id: "alloc-paint", productId: "prod-paint", warehouseId: "wh-1", quantity: 30.0 }, // Only 30 L available
+  { id: "alloc-tile", productId: "prod-tile", warehouseId: "wh-1", quantity: 100.0, reservedQuantity: 0 },
+  { id: "alloc-paint", productId: "prod-paint", warehouseId: "wh-1", quantity: 30.0, reservedQuantity: 0 }, // Only 30 L available
 ];
 
 let dbSalesOrders: any[] = [];
@@ -33,10 +33,33 @@ let dbAuditLogs: any[] = [];
 let dbStockMovements: any[] = [];
 
 vi.mock("@/prisma/client", () => {
+  let transactionTail: Promise<any> = Promise.resolve();
   const mockTx = {
+    // The reservation command now rechecks/fences its actual actor in the transaction.
+    user: { findUnique: vi.fn(async ({ where }: any) => ({ id: where.id, role: 'SUPER_ADMIN', status: true, warehouseIds: [], permissions: [] })),
+      update: vi.fn(async ({ where }: any) => ({ id: where.id })) },
+    product: {
+      findUnique: vi.fn(async ({ where }: any) => [mockProductTile, mockProductPaint].find(p => p.id === where.id) || null),
+      update: vi.fn(async ({ where, data }: any) => {
+        const product = [mockProductTile, mockProductPaint].find(p => p.id === where.id);
+        if (!product) throw new Error("Product not found");
+        Object.assign(product, data); return product;
+      }),
+    },
+    unit: { findUnique: vi.fn(async ({ where }: any) => [
+      { id: "unit-m2", active: true, type: "area" }, { id: "unit-L", active: true, type: "volume" },
+    ].find(u => u.id === where.id) || null) },
+    projectMaterialIssueItem: { findMany: vi.fn(async () => []) },
     stockAllocation: {
+      update: vi.fn(async ({ where, data }: any) => {
+        const row = mockStockAllocations.find(a => a.productId === where.productId_warehouseId.productId && a.warehouseId === where.productId_warehouseId.warehouseId);
+        if (!row) throw new Error("Allocation not found");
+        if (data.reservedQuantity?.increment !== undefined) row.reservedQuantity += data.reservedQuantity.increment;
+        if (data.updatedAt) Object.assign(row, { updatedAt: data.updatedAt });
+        return row;
+      }),
       findMany: vi.fn(async ({ where }: any) => {
-        return mockStockAllocations.filter((a) => a.productId === where.productId && a.warehouseId === where.warehouseId);
+        return mockStockAllocations.filter((a) => (!where.productId || a.productId === where.productId) && (!where.warehouseId || a.warehouseId === where.warehouseId));
       }),
     },
     stockReservationItem: {
@@ -85,10 +108,22 @@ vi.mock("@/prisma/client", () => {
     },
   };
 
-  return {
-    prisma: {
+  const mockPrisma = {
       ...mockTx,
-      $transaction: vi.fn(async (cb: any) => cb(mockTx)),
+      $transaction: vi.fn((cb: any) => {
+        const run = transactionTail.then(async () => {
+          const snapshot = structuredClone({ dbSalesOrders, dbReservations, dbReservationItems, dbAuditLogs, dbStockMovements });
+          try { return await cb(mockPrisma); }
+          catch (error) {
+            ({ dbSalesOrders, dbReservations, dbReservationItems, dbAuditLogs, dbStockMovements } = snapshot);
+            // Reattach relation objects after restoring the transaction snapshot.
+            for (const r of dbReservations) r.items = dbReservationItems.filter(i => i.reservationId === r.id);
+            throw error;
+          }
+        });
+        transactionTail = run.catch(() => undefined);
+        return run;
+      }),
       salesOrder: {
         findUnique: vi.fn(async ({ where }: any) => dbSalesOrders.find((so) => so.id === where.id) || null),
         findFirst: vi.fn(async () => null),
@@ -118,8 +153,8 @@ vi.mock("@/prisma/client", () => {
         count: vi.fn(async () => dbStockMovements.length),
       },
       auditLog: mockTx.auditLog,
-    },
   };
+  return { prisma: mockPrisma };
 });
 
 import {

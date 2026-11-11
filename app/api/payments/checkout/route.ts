@@ -1,3 +1,4 @@
+import { erpFinancialAccess } from "@/lib/sales/financialAccess";
 /**
  * Stripe Checkout API Route
  * POST /api/payments/checkout — create a Stripe Checkout session
@@ -45,12 +46,12 @@ export async function POST(request: NextRequest) {
     const validationResult = createCheckoutBodySchema.safeParse(body);
     if (!validationResult.success) {
       logger.warn("Invalid checkout data", {
-        errors: validationResult.error.errors,
+        errors: validationResult.error.issues,
       });
       return NextResponse.json(
         {
           error: "Invalid request body",
-          details: validationResult.error.errors,
+          details: validationResult.error.issues,
         },
         { status: 400 },
       );
@@ -93,8 +94,8 @@ export async function POST(request: NextRequest) {
       const isClient = session.role === "client";
       const isCreator = order.userId === session.id;
       const isOrderClient = order.clientId === session.id;
-      const canCheckout =
-        isAdmin || isCreator || (isClient && isOrderClient);
+      const erpAccess = await erpFinancialAccess(prisma, session.id, order.id);
+      const canCheckout = erpAccess ?? (isAdmin || isCreator || (isClient && isOrderClient));
 
       if (!canCheckout) {
         return NextResponse.json(
@@ -186,8 +187,9 @@ export async function POST(request: NextRequest) {
       const isInvoiceClient =
         invoice.clientId === session.id ||
         invoice.order?.clientId === session.id;
-      const canCheckout =
-        isAdmin || isCreator || (isClient && isInvoiceClient);
+      const erpAccess = await erpFinancialAccess(prisma, session.id, invoice.orderId);
+      const canCheckout = erpAccess ?? (isAdmin || isCreator || (isClient && isInvoiceClient));
+      if (invoice.status === "cancelled") return NextResponse.json({ error: "Cancelled invoice cannot accept payment" }, { status: 409 });
 
       if (!canCheckout) {
         return NextResponse.json(

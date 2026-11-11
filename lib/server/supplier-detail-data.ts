@@ -140,7 +140,7 @@ function transformSupplierDetail(
         owner,
         placedBy,
         // REQ-0143 — category for recent-order meta line
-        category: categoryMap.get(product.categoryId) ?? null,
+        category: (product.categoryId ? categoryMap.get(product.categoryId) : undefined) ?? null,
       };
     });
   });
@@ -187,7 +187,7 @@ function transformSupplierDetail(
       owner: toParty(ownerMap.get(product.userId)),
       supplier: supplierSnapshot,
       // REQ-0141 — category for product grid link
-      category: categoryMap.get(product.categoryId) ?? null,
+      category: (product.categoryId ? categoryMap.get(product.categoryId) : undefined) ?? null,
     })),
     recentOrders,
     isGlobalDemo: isDemoSupplier,
@@ -281,7 +281,7 @@ export async function getSupplierDetailForPage(
   });
 
   const ownerIds = [...new Set(products.map((p) => p.userId))];
-  const categoryIds = [...new Set(products.map((p) => p.categoryId))];
+  const categoryIds = [...new Set(products.map((p) => p.categoryId).filter((id): id is string => id !== null))];
   const orderUserIds = [
     ...new Set(
       products.flatMap((p) =>

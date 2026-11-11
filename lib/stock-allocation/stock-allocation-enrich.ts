@@ -65,7 +65,7 @@ export async function fetchStockAllocationProductMap(
     },
   });
 
-  const categoryIds = [...new Set(products.map((p) => p.categoryId))];
+  const categoryIds = [...new Set(products.map((p) => p.categoryId).filter((id): id is string => id !== null))];
   const supplierIds = [...new Set(products.map((p) => p.supplierId))];
 
   const [categories, suppliers] = await Promise.all([
@@ -96,7 +96,7 @@ export async function fetchStockAllocationProductMap(
           price: p.price,
           quantity: Number(p.quantity),
           categoryId: p.categoryId ?? null,
-          categoryName: categoryMap.get(p.categoryId) ?? null,
+          categoryName: (p.categoryId ? categoryMap.get(p.categoryId) : undefined) ?? null,
           supplierId: p.supplierId ?? null,
           supplierName: supplierMap.get(p.supplierId) ?? null,
           deletedAt: p.deletedAt?.toISOString() ?? null,

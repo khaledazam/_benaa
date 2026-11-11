@@ -50,10 +50,10 @@ export default function PickListDetailView({ id }: PickListDetailViewProps) {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // Permissions
-  const canStart = hasPermission(userRole, BuildStockPermissions.PICK_LIST_START);
-  const canUpdate = hasPermission(userRole, BuildStockPermissions.PICK_LIST_UPDATE);
-  const canComplete = hasPermission(userRole, BuildStockPermissions.PICK_LIST_COMPLETE);
-  const canCancel = hasPermission(userRole, BuildStockPermissions.PICK_LIST_CANCEL);
+  const canStart = hasPermission(user, BuildStockPermissions.PICK_LIST_START);
+  const canUpdate = hasPermission(user, BuildStockPermissions.PICK_LIST_UPDATE);
+  const canComplete = hasPermission(user, BuildStockPermissions.PICK_LIST_COMPLETE);
+  const canCancel = hasPermission(user, BuildStockPermissions.PICK_LIST_CANCEL);
 
   // Fetch Pick List details
   const { data: pickList, isLoading, isError } = useQuery({

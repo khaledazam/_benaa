@@ -12,5 +12,7 @@ export function mapSessionToAppUser(session: PrismaUser): User {
     email: session.email,
     image: session.image ?? undefined,
     role: session.role ?? "user",
+    permissions: session.permissions,
+    permissionsRestricted: session.permissionsRestricted,
   };
 }

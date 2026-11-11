@@ -32,7 +32,7 @@ import { hasPermission, BuildStockPermissions } from "@/lib/auth/permissions";
 export function ReconciliationView() {
   const { user } = useAuth();
   const role = user?.role || "VIEWER";
-  const canView = hasPermission(role, BuildStockPermissions.INVENTORY_RECONCILIATION_VIEW);
+  const canView = hasPermission(user, BuildStockPermissions.INVENTORY_RECONCILIATION_VIEW);
 
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);

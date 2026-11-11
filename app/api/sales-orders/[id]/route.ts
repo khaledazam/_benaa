@@ -1,16 +1,18 @@
+import { withWarehouseScope } from "@/lib/auth/warehouse-route-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth-server";
 import { mapSessionToAppUser } from "@/lib/auth/map-session-user";
 import { hasPermission, BuildStockPermissions } from "@/lib/auth/permissions";
 import { getSalesOrderById, updateSalesOrderDraft } from "@/lib/sales/salesOrderService";
 
-export async function GET(req: NextRequest, context: { params: Promise<{ id: string }> }) {
+async function scopedGET(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const session = await getSession();
+    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const user = session ? mapSessionToAppUser(session) : null;
     const role = user?.role || "VIEWER";
 
-    if (!hasPermission(role, BuildStockPermissions.SALES_ORDER_VIEW)) {
+    if (!hasPermission(user, BuildStockPermissions.SALES_ORDER_VIEW)) {
       return NextResponse.json({ error: "Unauthorized access" }, { status: 403 });
     }
 
@@ -22,13 +24,14 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
   }
 }
 
-export async function PATCH(req: NextRequest, context: { params: Promise<{ id: string }> }) {
+async function scopedPATCH(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const session = await getSession();
+    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const user = session ? mapSessionToAppUser(session) : null;
     const role = user?.role || "VIEWER";
 
-    if (!hasPermission(role, BuildStockPermissions.SALES_ORDER_UPDATE)) {
+    if (!hasPermission(user, BuildStockPermissions.SALES_ORDER_UPDATE)) {
       return NextResponse.json({ error: "Insufficient permissions to update sales orders" }, { status: 403 });
     }
 
@@ -40,3 +43,6 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     return NextResponse.json({ error: error.message || "Failed to update sales order" }, { status: 400 });
   }
 }
+
+export const GET = withWarehouseScope(scopedGET);
+export const PATCH = withWarehouseScope(scopedPATCH);

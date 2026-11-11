@@ -25,6 +25,10 @@ import type { Order } from "@/types";
 export type SessionForDetail = {
   id: string;
   role: string | null;
+  permissions?: string[];
+  permissionsRestricted?: boolean | null;
+  primaryWarehouseId?: string | null;
+  warehouseIds?: string[];
 };
 
 async function enrichOrder(orderId: string, order: NonNullable<Awaited<ReturnType<typeof getOrderById>>>): Promise<OrderDetailEnrichment> {

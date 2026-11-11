@@ -310,15 +310,22 @@ export function normalizeRole(role?: string | null): string {
 /**
  * Checks if a given role possesses a specific permission
  */
-export function hasPermission(role?: string | null, permission?: PermissionName): boolean {
+export interface PermissionSubject { role?: string | null; permissions?: string[]; permissionsRestricted?: boolean | null }
+export function hasPermission(subject?: string | PermissionSubject | null, permission?: PermissionName): boolean {
   if (!permission) return true;
-  const userRole = role || BuildStockRoles.VIEWER;
+  const userRole = (typeof subject === 'object' ? subject?.role : subject) || BuildStockRoles.VIEWER;
   
   // Super admin has all permissions
   if (userRole === BuildStockRoles.SUPER_ADMIN || userRole === "admin") {
     return true;
   }
 
-  const permissions = ROLE_PERMISSIONS[userRole] || ROLE_PERMISSIONS[BuildStockRoles.VIEWER] || [];
-  return permissions.includes(permission);
+  const permissions = ROLE_PERMISSIONS[userRole] || [];
+  return permissions.includes(permission) && !(typeof subject === 'object' && subject?.permissionsRestricted === true &&
+    !subject.permissions?.includes(permission));
+}
+
+/** Explicit employee restrictions can only reduce the role's existing authority. */
+export function effectivePermissions(subject: PermissionSubject): PermissionName[] {
+  return (Object.keys(BuildStockPermissions) as PermissionName[]).filter(permission => hasPermission(subject, permission));
 }

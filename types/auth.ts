@@ -6,6 +6,8 @@
  * User interface for authentication context
  */
 export interface User {
+  permissions?: string[];
+  permissionsRestricted?: boolean | null;
   id: string;
   name?: string;
   email: string;

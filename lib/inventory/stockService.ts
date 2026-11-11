@@ -1,5 +1,14 @@
 import { prisma } from "@/prisma/client";
 import { convertUnitQuantity } from "@/lib/units/unitService";
+import { getStockAvailabilityInTx } from "./availability";
+import { inventoryTransaction } from "./transaction";
+import { randomUUID } from "node:crypto";
+import { stockUnits, STOCK_SCALE, addStock } from "./quantity";
+import { createOrUpdateBatchOnReceiptInTx } from "./batchService";
+
+// Internal proof that a trusted service manages batch counters in this same tx.
+// JSON callers cannot forge a symbol; generic mutations manage their own batch.
+export const BATCH_MANAGED_IN_TX = Symbol("batch-managed-in-current-transaction");
 
 export const StockMovementTypes = {
   OPENING_BALANCE: "OPENING_BALANCE",
@@ -14,40 +23,19 @@ export const StockMovementTypes = {
   ADJUSTMENT_OUT: "ADJUSTMENT_OUT",
   DAMAGE: "DAMAGE",
   LOSS: "LOSS",
+  PROJECT_ISSUE: "PROJECT_ISSUE",
+  PROJECT_RETURN: "PROJECT_RETURN",
 } as const;
 
 export type StockMovementType = keyof typeof StockMovementTypes | string;
 
-export const StockStatuses = {
-  IN_STOCK: "IN_STOCK",
-  LOW_STOCK: "LOW_STOCK",
-  OUT_OF_STOCK: "OUT_OF_STOCK",
-  OVERSTOCK: "OVERSTOCK",
-} as const;
-
-export type StockStatus = keyof typeof StockStatuses;
-
-/**
- * Calculates stock status based on current quantity and product min/max thresholds.
- */
-export function calculateStockStatus(
-  currentQuantity: number,
-  minimumStock: number = 0,
-  maximumStock?: number | null
-): StockStatus {
-  if (currentQuantity <= 0) {
-    return StockStatuses.OUT_OF_STOCK;
-  }
-  if (maximumStock != null && maximumStock > 0 && currentQuantity > maximumStock) {
-    return StockStatuses.OVERSTOCK;
-  }
-  if (minimumStock > 0 && currentQuantity <= minimumStock) {
-    return StockStatuses.LOW_STOCK;
-  }
-  return StockStatuses.IN_STOCK;
-}
+import { calculateStockStatus, type StockStatus } from "./stock-status";
+export { StockStatuses, calculateStockStatus } from "./stock-status";
+export type { StockStatus } from "./stock-status";
 
 export interface StockMutationParams {
+  batchId?: string | null;
+  batchAccounting?: typeof BATCH_MANAGED_IN_TX;
   productId: string;
   warehouseId: string;
   quantity: number;
@@ -78,7 +66,7 @@ export interface StockMutationResult {
 
 function generateMovementNumber(): string {
   const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-  const randomSuffix = Math.floor(100000 + Math.random() * 900000);
+  const randomSuffix = randomUUID();
   return `MOV-${dateStr}-${randomSuffix}`;
 }
 
@@ -116,18 +104,20 @@ export async function executeStockMutationInTx(
   if (!product) {
     throw new Error(`Product not found with id: ${productId}`);
   }
+  if (product.deletedAt) throw new Error("Archived product cannot receive stock mutations");
 
   const warehouse = await tx.warehouse.findUnique({ where: { id: warehouseId } });
   if (!warehouse) {
     throw new Error(`Warehouse not found with id: ${warehouseId}`);
   }
+  if (warehouse.status === false) throw new Error("Warehouse is inactive");
 
   const baseQuantity = await convertUnitQuantity({
     quantity,
-    fromUnitId: unitId,
+    fromUnitId: unitId || product.unitId,
     toUnitId: product.unitId,
     productId,
-  });
+  }, tx);
 
   const isIncoming = [
     StockMovementTypes.OPENING_BALANCE,
@@ -135,8 +125,17 @@ export async function executeStockMutationInTx(
     StockMovementTypes.TRANSFER_IN,
     StockMovementTypes.CUSTOMER_RETURN,
     StockMovementTypes.ADJUSTMENT_IN,
+    StockMovementTypes.PROJECT_RETURN,
     "FOUND",
   ].includes(movementType as any);
+  if (movementType === "RELOCATION") throw new Error("Use the atomic bin relocation operation");
+  if (!Object.values(StockMovementTypes).includes(movementType as any) && movementType !== "FOUND") throw new Error("Unknown stock movement type");
+  if (!Number.isFinite(baseQuantity) || baseQuantity <= 0) throw new Error("Invalid base-unit quantity");
+  stockUnits(baseQuantity);
+  if (!isIncoming) {
+    const available = await getStockAvailabilityInTx(tx, productId, warehouseId);
+    if (!available.consistent || baseQuantity > available.availableStock + 1e-9) throw new Error("Insufficient uncommitted stock");
+  }
 
   const delta = isIncoming ? baseQuantity : -baseQuantity;
 
@@ -145,7 +144,7 @@ export async function executeStockMutationInTx(
   });
 
   const previousWarehouseStock = allocation ? Number(allocation.quantity) : 0;
-  const newWarehouseStock = previousWarehouseStock + delta;
+  const newWarehouseStock = addStock(previousWarehouseStock, delta);
 
   if (newWarehouseStock < 0) {
     throw new Error(
@@ -154,7 +153,7 @@ export async function executeStockMutationInTx(
   }
 
   const previousProductStock = Number(product.quantity);
-  const newProductStock = previousProductStock + delta;
+  const newProductStock = addStock(previousProductStock, delta);
 
   if (newProductStock < 0) {
     throw new Error(
@@ -172,10 +171,27 @@ export async function executeStockMutationInTx(
   const targetBinId = destinationBinId || (isIncoming ? binId : null) || null;
   const srcBinId = sourceBinId || (!isIncoming ? binId : null) || null;
   const effectiveBinId = srcBinId || targetBinId;
+  if ((isIncoming && (sourceBinId || (!destinationBinId && sourceBinId))) || (!isIncoming && destinationBinId)) throw new Error("Bin direction does not match stock movement");
+  if (srcBinId && targetBinId) throw new Error("A stock mutation cannot specify both source and destination bins");
+
+  const tracked = ["BATCH", "LOT", "HEAT"].includes(product.trackingMode);
+  if (tracked && !params.batchId) throw new Error("Tracked stock mutation requires a batch");
+  let batch: any = null;
+  if (params.batchId) {
+    batch = await tx.inventoryBatch.findUnique({ where: { id: params.batchId } });
+    if (!batch || batch.productId !== productId || batch.warehouseId !== warehouseId ||
+        (!isIncoming && batch.status !== "ACTIVE") || (isIncoming && !["ACTIVE", "EXHAUSTED"].includes(batch.status))) throw new Error("Invalid stock batch scope or status");
+    if (params.batchAccounting !== BATCH_MANAGED_IN_TX) {
+      if (!isIncoming && batch.quantity - batch.reservedQuantity < baseQuantity) throw new Error("Insufficient uncommitted batch stock");
+      const batchQuantity = addStock(batch.quantity, isIncoming ? baseQuantity : -baseQuantity);
+      await tx.inventoryBatch.update({ where: { id: batch.id }, data: { quantity: batchQuantity, status: batchQuantity === 0 ? "EXHAUSTED" : "ACTIVE" } });
+    }
+  }
 
   if (targetBinId) {
     const bin = await tx.warehouseBin.findUnique({ where: { id: targetBinId } });
     if (!bin) throw new Error(`Destination bin not found: ${targetBinId}`);
+    if (bin.active === false) throw new Error("Destination bin is inactive");
     if (bin.warehouseId !== warehouseId) {
       throw new Error(`Destination bin ${bin.code} belongs to warehouse ${bin.warehouseId}, not ${warehouseId}`);
     }
@@ -184,9 +200,15 @@ export async function executeStockMutationInTx(
   if (srcBinId) {
     const bin = await tx.warehouseBin.findUnique({ where: { id: srcBinId } });
     if (!bin) throw new Error(`Source bin not found: ${srcBinId}`);
+    if (bin.active === false) throw new Error("Source bin is inactive");
     if (bin.warehouseId !== warehouseId) {
       throw new Error(`Source bin ${bin.code} belongs to warehouse ${bin.warehouseId}, not ${warehouseId}`);
     }
+  }
+
+  // A product already tracked in bins cannot bypass location accounting.
+  if (!effectiveBinId && await tx.stockLocationAllocation.count({ where: { productId, warehouseId } }) > 0) {
+    throw new Error("A bin is required for location-tracked stock");
   }
 
   const createdMovement = await tx.stockMovement.create({
@@ -207,6 +229,8 @@ export async function executeStockMutationInTx(
       reason: reason || null,
       performedBy,
       approvedBy: approvedBy || null,
+      batchId: batch?.id || null,
+      batchNumber: batch?.batchNumber || null,
     },
   });
 
@@ -218,7 +242,7 @@ export async function executeStockMutationInTx(
       quantity: newWarehouseStock,
       reservedQuantity: 0,
       userId: performedBy,
-      unitId: unitId || product.unitId || null,
+      unitId: product.unitId || null,
     },
     update: {
       quantity: newWarehouseStock,
@@ -240,7 +264,7 @@ export async function executeStockMutationInTx(
       where: { productId_binId: { productId, binId: effectiveBinId } },
     });
     const prevBinStock = locAlloc ? Number(locAlloc.quantity) : 0;
-    const newBinStock = isIncoming ? prevBinStock + baseQuantity : Math.max(0, prevBinStock - baseQuantity);
+    const newBinStock = addStock(prevBinStock, isIncoming ? baseQuantity : -baseQuantity);
 
     if (!isIncoming && prevBinStock < baseQuantity) {
       throw new Error(
@@ -255,7 +279,7 @@ export async function executeStockMutationInTx(
         warehouseId,
         binId: effectiveBinId,
         quantity: newBinStock,
-        unitId: unitId || product.unitId || null,
+        unitId: product.unitId || null,
         quantityInBaseUnit: newBinStock,
       },
       update: {
@@ -286,7 +310,7 @@ export async function executeStockMutationInTx(
 export async function executeStockMutation(
   params: StockMutationParams
 ): Promise<StockMutationResult> {
-  return await prisma.$transaction(async (tx) => {
+  return await inventoryTransaction(prisma, async (tx) => {
     return await executeStockMutationInTx(tx, params);
   });
 }
@@ -295,6 +319,7 @@ export async function executeStockMutation(
  * Execute Stock Transfer between two warehouses with paired StockMovement entries
  */
 export async function executeStockTransfer(params: {
+  batchId?: string | null;
   productId: string;
   fromWarehouseId: string;
   toWarehouseId: string;
@@ -311,7 +336,8 @@ export async function executeStockTransfer(params: {
     throw new Error("Source and destination warehouses must be different for stock transfer");
   }
 
-  return await prisma.$transaction(async (tx) => {
+  return await inventoryTransaction(prisma, async (tx) => {
+    const sourceBatch = params.batchId ? await tx.inventoryBatch.findUnique({ where: { id: params.batchId } }) : null;
     // 1. Transfer Out from source warehouse
     const outResult = await executeStockMutationInTx(tx, {
       productId,
@@ -322,9 +348,14 @@ export async function executeStockTransfer(params: {
       movementType: StockMovementTypes.TRANSFER_OUT,
       reason: notes || `Transfer to warehouse ${toWarehouseId}`,
       performedBy,
+      batchId: params.batchId,
     });
 
     // 2. Transfer In to destination warehouse
+    const destinationBatch = sourceBatch ? await createOrUpdateBatchOnReceiptInTx(tx, { productId, warehouseId: toWarehouseId,
+      batchNumber: sourceBatch.batchNumber, lotNumber: sourceBatch.lotNumber, heatNumber: sourceBatch.heatNumber,
+      manufactureDate: sourceBatch.manufactureDate, expiryDate: sourceBatch.expiryDate, supplierId: sourceBatch.supplierId,
+      quantity: outResult.previousWarehouseStock - outResult.newWarehouseStock }) : null;
     const inResult = await executeStockMutationInTx(tx, {
       productId,
       warehouseId: toWarehouseId,
@@ -336,9 +367,13 @@ export async function executeStockTransfer(params: {
       referenceId: outResult.movementId,
       reason: notes || `Transfer from warehouse ${fromWarehouseId}`,
       performedBy,
+      batchId: destinationBatch?.id,
+      batchAccounting: destinationBatch ? BATCH_MANAGED_IN_TX : undefined,
     });
 
     // 3. Record StockTransfer entry
+    const baseQuantity = (stockUnits(outResult.previousWarehouseStock) - stockUnits(outResult.newWarehouseStock)) / STOCK_SCALE;
+    const product = await tx.product.findUnique({ where: { id: productId } });
     const transferRecord = await tx.stockTransfer.create({
       data: {
         transferNumber: `TRF-${outResult.movementNumber.replace("MOV-", "")}`,
@@ -347,14 +382,18 @@ export async function executeStockTransfer(params: {
         toWarehouseId,
         fromBinId: fromBinId || null,
         toBinId: toBinId || null,
-        quantity,
-        unitId: unitId || null,
-        status: "completed",
+        batchId: sourceBatch?.id || null,
+        quantity: baseQuantity,
+        unitId: product.unitId || null,
+        receivedQuantity: baseQuantity,
+        inTransitQuantity: 0,
+        status: "COMPLETED",
         notes: notes || null,
         userId: performedBy,
         completedAt: new Date(),
       },
     });
+    await tx.stockMovement.updateMany({ where: { id: { in: [outResult.movementId, inResult.movementId] } }, data: { referenceType: "StockTransfer", referenceId: transferRecord.id } });
 
     return {
       transferRecord,
@@ -388,17 +427,19 @@ export async function executeStockRelocation(params: {
     throw new Error("Source and destination bins must be different");
   }
 
-  if (quantity <= 0) {
+  if (!Number.isFinite(quantity) || quantity <= 0) {
     throw new Error("Relocation quantity must be greater than 0");
   }
 
+  return inventoryTransaction(prisma, async (tx) => {
   // Verify bins belong to warehouseId
   const [fromBin, toBin, product] = await Promise.all([
-    prisma.warehouseBin.findUnique({ where: { id: fromBinId } }),
-    prisma.warehouseBin.findUnique({ where: { id: toBinId } }),
-    prisma.product.findUnique({ where: { id: productId } }),
+    tx.warehouseBin.findUnique({ where: { id: fromBinId } }),
+    tx.warehouseBin.findUnique({ where: { id: toBinId } }),
+    tx.product.findUnique({ where: { id: productId } }),
   ]);
 
+  if (fromBin?.active === false || toBin?.active === false) throw new Error("Inactive relocation bin");
   if (!fromBin) throw new Error(`Source bin not found: ${fromBinId}`);
   if (!toBin) throw new Error(`Destination bin not found: ${toBinId}`);
   if (!product) throw new Error(`Product not found: ${productId}`);
@@ -412,13 +453,13 @@ export async function executeStockRelocation(params: {
 
   const baseQuantity = await convertUnitQuantity({
     quantity,
-    fromUnitId: unitId,
+    fromUnitId: unitId || product.unitId,
     toUnitId: product.unitId,
     productId,
-  });
+  }, tx);
 
   // Verify source bin has sufficient stock
-  const sourceAlloc = await prisma.stockLocationAllocation.findUnique({
+  const sourceAlloc = await tx.stockLocationAllocation.findUnique({
     where: { productId_binId: { productId, binId: fromBinId } },
   });
 
@@ -430,16 +471,16 @@ export async function executeStockRelocation(params: {
     );
   }
 
-  const allocation = await prisma.stockAllocation.findUnique({
+  const allocation = await tx.stockAllocation.findUnique({
     where: { productId_warehouseId: { productId, warehouseId } },
   });
   const warehouseTotalStock = allocation ? allocation.quantity : 0;
 
   const movementNumber = generateMovementNumber();
 
-  return prisma.$transaction(async (tx) => {
+  stockUnits(baseQuantity);
     // 1. Decrement source bin allocation
-    const newSourceStock = sourceCurrentStock - baseQuantity;
+    const newSourceStock = (stockUnits(sourceCurrentStock) - stockUnits(baseQuantity)) / STOCK_SCALE;
     await tx.stockLocationAllocation.update({
       where: { productId_binId: { productId, binId: fromBinId } },
       data: {
@@ -454,7 +495,7 @@ export async function executeStockRelocation(params: {
       where: { productId_binId: { productId, binId: toBinId } },
     });
     const destCurrentStock = destAlloc ? destAlloc.quantity : 0;
-    const newDestStock = destCurrentStock + baseQuantity;
+    const newDestStock = (stockUnits(destCurrentStock) + stockUnits(baseQuantity)) / STOCK_SCALE;
 
     const updatedDestAlloc = await tx.stockLocationAllocation.upsert({
       where: { productId_binId: { productId, binId: toBinId } },
@@ -463,7 +504,7 @@ export async function executeStockRelocation(params: {
         warehouseId,
         binId: toBinId,
         quantity: newDestStock,
-        unitId: unitId || product.unitId || null,
+        unitId: product.unitId || null,
         quantityInBaseUnit: newDestStock,
       },
       update: {

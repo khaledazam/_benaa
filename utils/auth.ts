@@ -8,9 +8,17 @@ import { User as PrismaUser } from "@prisma/client";
 import Cookies from "js-cookie"; // Import js-cookie
 import { NextApiRequest, NextApiResponse } from "next";
 import { prisma } from "@/prisma/client";
+import { sessionTokenDigest, recordSessionRevocation } from '@/lib/auth/sessionRevocation';
 
 /** Secret for signing/verifying JWT; must match across server and be set in production. */
-const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret";
+function signingSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret || secret.trim().length < 32) throw new Error("JWT_SECRET must contain at least 32 characters");
+  return secret;
+}
+export function isAccountAccessAllowed(user: { status?: boolean | null; subscriptionStartDate?: Date | null; subscriptionEndDate?: Date | null }, now = new Date()): boolean {
+  return user.status !== false && (!user.subscriptionStartDate || user.subscriptionStartDate <= now) && (!user.subscriptionEndDate || user.subscriptionEndDate > now);
+}
 
 /** Session lifetime — password login + Google OAuth share the same JWT + cookie TTL (REQ-0134). */
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24; // 1 day
@@ -42,12 +50,23 @@ export function sessionCookieOptions(isSecure: boolean): {
 }
 
 /** Creates a signed JWT containing userId; used after login to set session cookie. */
-export const generateToken = (userId: string): string => {
-  const token = jwt.sign({ userId }, JWT_SECRET, {
-    expiresIn: SESSION_JWT_EXPIRES,
+export const generateToken = (userId: string, sessionVersion = 0,
+  mobile?: { sessionId: string }): string => {
+  const token = jwt.sign({ userId, sv: sessionVersion, jti: crypto.randomUUID(),
+    ...(mobile ? { msid: mobile.sessionId } : {}) }, signingSecret(), {
+    algorithm: "HS256",
+    expiresIn: mobile ? 15 * 60 : SESSION_JWT_EXPIRES,
   });
   return token;
 };
+
+async function mobileGrantIsCurrent(token: string, userId: string): Promise<boolean> {
+  const claims = jwt.decode(token) as { msid?: unknown } | null;
+  if (claims?.msid === undefined) return true; // existing web session policy
+  if (typeof claims.msid !== 'string' || !/^[a-f0-9]{24}$/i.test(claims.msid)) return false;
+  const grant = await prisma.mobileSession.findUnique({ where: { id: claims.msid } });
+  return !!grant && grant.userId === userId && !grant.revokedAt && grant.expiresAt > new Date();
+}
 
 /** Verifies JWT and returns decoded payload (userId); returns null if invalid or on client. */
 export const verifyToken = (token: string): { userId: string } | null => {
@@ -67,8 +86,9 @@ export const verifyToken = (token: string): { userId: string } | null => {
       return null;
     }
 
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
-    return decoded;
+    const decoded = jwt.verify(token, signingSecret(), { algorithms: ["HS256"] });
+    if (typeof decoded === "string" || typeof decoded.userId !== "string" || !/^[a-f0-9]{24}$/i.test(decoded.userId) || typeof decoded.exp !== "number") return null;
+    return { userId: decoded.userId };
   } catch (error) {
     return null;
   }
@@ -93,7 +113,9 @@ export const getSessionServer = async (
   }
 
   const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
-  return user;
+  if (await prisma.revokedSession.findUnique({ where: { tokenDigest: await sessionTokenDigest(token) } })) return null;
+  const claims = jwt.decode(token) as { sv?: number } | null;
+  return user && (user.sessionVersion ?? 0) === (claims?.sv ?? 0) && isAccountAccessAllowed(user) && await mobileGrantIsCurrent(token, user.id) ? user : null;
 };
 
 /**
@@ -125,8 +147,23 @@ export const getSessionFromRequest = async (request: {
   }
 
   const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
-  return user;
+  if (await prisma.revokedSession.findUnique({ where: { tokenDigest: await sessionTokenDigest(token) } })) return null;
+  const claims = jwt.decode(token) as { sv?: number } | null;
+  return user && (user.sessionVersion ?? 0) === (claims?.sv ?? 0) && isAccountAccessAllowed(user) && await mobileGrantIsCurrent(token, user.id) ? user : null;
 };
+
+/** Idempotent logout of one verified token, without invalidating other devices. */
+export async function revokePresentedSession(request: {
+  cookies?: { get: (name: string) => { value: string } | undefined };
+  headers?: { get: (name: string) => string | null };
+}): Promise<void> {
+  const token = request.cookies?.get('session_id')?.value || request.headers?.get('authorization')?.replace(/^Bearer /, '').trim();
+  if (!token) return;
+  const verified = verifyToken(token);
+  if (!verified) return;
+  const claims = jwt.decode(token) as { exp: number; msid?: string };
+  await recordSessionRevocation(prisma, token, verified.userId, new Date(claims.exp * 1000), claims.msid);
+}
 
 /** Client-side: fetches /api/auth/session with cookies to get current user (avoids using JWT on client). */
 export const getSessionClient = async (): Promise<User | null> => {

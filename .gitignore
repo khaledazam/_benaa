@@ -62,3 +62,7 @@ PROJECT_PLAN.md
 
 # Sentry Errors
 SENTRY_ERRORS.md
+# Disposable local certification outputs
+.next-codex-*/
+.remediation-tmp/
+.tmp-dispatch-tests/

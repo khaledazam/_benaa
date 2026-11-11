@@ -1,0 +1,11 @@
+# Named authenticated tunnel. Owner creates/authorizes tunnel and DNS first.
+# Keep the real connector credential JSON outside the release and out of APK.
+tunnel: SET_OWNER_APPROVED_TUNNEL_UUID
+credentials-file: C:\ProgramData\BENAA\tunnel-credentials.json
+ingress:
+  - hostname: SET_OWNER_APPROVED_API_HOSTNAME
+    service: http://127.0.0.1:3217
+    originRequest:
+      connectTimeout: 10s
+      httpHostHeader: SET_OWNER_APPROVED_API_HOSTNAME
+  - service: http_status:404

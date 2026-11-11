@@ -79,10 +79,10 @@ export async function POST(request: NextRequest) {
     const validationResult = aiInsightsBodySchema.safeParse(body);
     if (!validationResult.success) {
       logger.warn("Invalid AI insights request", {
-        errors: validationResult.error.errors,
+        errors: validationResult.error.issues,
       });
       return errorResponse("Invalid request body", 400, {
-        details: validationResult.error.errors,
+        details: validationResult.error.issues,
       });
     }
 

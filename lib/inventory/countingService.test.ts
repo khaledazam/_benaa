@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 // Mock Fixtures
 const mockWarehouseA = { id: "wh-a", name: "Warehouse Alpha", code: "WH-A" };
-const mockUser = { id: "user-mgr-1", name: "Manager User", username: "mgr" };
+const mockUser = { id: "user-mgr-1", name: "Manager User", username: "mgr", role: "SUPER_ADMIN", status: true, warehouseIds: ["wh-a", "wh-b"] };
 
 const mockProductTiles = {
   id: "prod-tiles",
@@ -31,7 +31,13 @@ let dbProducts: any[] = [];
 
 vi.mock("@/prisma/client", () => {
   const mockTx = {
+    // Explicit fixture tables for the authoritative availability/unit contract.
+    unit: { findUnique: vi.fn(async ({ where }: any) => [{ id: "unit-m2", active: true, type: "area" }].find(u => u.id === where.id) || null) },
+    projectMaterialIssueItem: { findMany: vi.fn(async () => []) },
+    stockReservationItem: { findMany: vi.fn(async () => []) },
+
     user: {
+      update: vi.fn(async ({ data }: any) => Object.assign(mockUser, data)),
       findUnique: vi.fn(async ({ where }: any) => (where.id === mockUser.id ? mockUser : null)),
     },
     product: {
@@ -70,7 +76,7 @@ vi.mock("@/prisma/client", () => {
         if (existing) {
           Object.assign(existing, update);
         } else {
-          existing = { id: `sa-${dbStockAllocations.length + 1}`, ...create };
+          existing = { id: `sa-${dbStockAllocations.length + 1}`, reservedQuantity: 0, ...create };
           dbStockAllocations.push(existing);
         }
         return existing;
@@ -82,6 +88,8 @@ vi.mock("@/prisma/client", () => {
       }),
     },
     stockLocationAllocation: {
+      count: vi.fn(async ({ where }: any) => dbStockLocationAllocations.filter(a =>
+        (!where.productId || a.productId === where.productId) && (!where.warehouseId || a.warehouseId === where.warehouseId)).length),
       findMany: vi.fn(async ({ where }: any) => {
         return dbStockLocationAllocations.filter((a) => {
           const matchProd = !where?.productId || a.productId === where.productId;
@@ -102,7 +110,7 @@ vi.mock("@/prisma/client", () => {
         if (existing) {
           Object.assign(existing, update);
         } else {
-          existing = { id: `sla-${dbStockLocationAllocations.length + 1}`, ...create };
+          existing = { id: `sla-${dbStockLocationAllocations.length + 1}`, reservedQuantity: 0, ...create };
           dbStockLocationAllocations.push(existing);
         }
         return existing;
@@ -214,19 +222,22 @@ vi.mock("@/prisma/client", () => {
       ...mockTx,
       $transaction: vi.fn(async (cb: any) => {
         const snapshot = {
-          dbStockAllocations: JSON.parse(JSON.stringify(dbStockAllocations)),
-          dbStockLocationAllocations: JSON.parse(JSON.stringify(dbStockLocationAllocations)),
-          dbStockMovements: JSON.parse(JSON.stringify(dbStockMovements)),
-          dbAdjustments: JSON.parse(JSON.stringify(dbAdjustments)),
-          dbAdjustmentItems: JSON.parse(JSON.stringify(dbAdjustmentItems)),
-          dbCounts: JSON.parse(JSON.stringify(dbCounts)),
-          dbCountItems: JSON.parse(JSON.stringify(dbCountItems)),
-          dbAuditLogs: JSON.parse(JSON.stringify(dbAuditLogs)),
-          dbProducts: JSON.parse(JSON.stringify(dbProducts)),
+          actor: structuredClone(mockUser),
+          dbStockAllocations: structuredClone(dbStockAllocations),
+          dbStockLocationAllocations: structuredClone(dbStockLocationAllocations),
+          dbStockMovements: structuredClone(dbStockMovements),
+          dbAdjustments: structuredClone(dbAdjustments),
+          dbAdjustmentItems: structuredClone(dbAdjustmentItems),
+          dbCounts: structuredClone(dbCounts),
+          dbCountItems: structuredClone(dbCountItems),
+          dbAuditLogs: structuredClone(dbAuditLogs),
+          dbProducts: structuredClone(dbProducts),
         };
         try {
           return await cb(mockTx);
         } catch (err) {
+          for (const key of Object.keys(mockUser)) if (!(key in snapshot.actor)) delete (mockUser as any)[key];
+          Object.assign(mockUser, snapshot.actor);
           dbStockAllocations = snapshot.dbStockAllocations;
           dbStockLocationAllocations = snapshot.dbStockLocationAllocations;
           dbStockMovements = snapshot.dbStockMovements;

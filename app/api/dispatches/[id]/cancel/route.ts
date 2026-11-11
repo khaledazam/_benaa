@@ -1,3 +1,4 @@
+import { withWarehouseScope } from "@/lib/auth/warehouse-route-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth-server";
 import { mapSessionToAppUser } from "@/lib/auth/map-session-user";
@@ -5,16 +6,17 @@ import { hasPermission, BuildStockPermissions } from "@/lib/auth/permissions";
 import { cancelDispatchSchema } from "@/lib/validations/dispatch-validations";
 import { cancelDispatch } from "@/lib/dispatch/dispatchService";
 
-export async function POST(
+async function scopedPOST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getSession();
+    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const user = session ? mapSessionToAppUser(session) : null;
     const role = user?.role || "VIEWER";
 
-    if (!user || !hasPermission(role, BuildStockPermissions.DISPATCH_CANCEL)) {
+    if (!user || !hasPermission(user, BuildStockPermissions.DISPATCH_CANCEL)) {
       return NextResponse.json({ error: "Forbidden: Insufficient permissions to cancel Dispatch" }, { status: 403 });
     }
 
@@ -32,3 +34,5 @@ export async function POST(
     );
   }
 }
+
+export const POST = withWarehouseScope(scopedPOST);

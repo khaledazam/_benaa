@@ -6,6 +6,7 @@
 
 import { isAxiosError, isExpectedClientError } from "@/lib/api/errors";
 import { captureException, captureMessage } from "@/lib/monitoring/sentry";
+import { redactLogValue, redactText, sanitizedError } from './log-redaction';
 
 /**
  * Log levels
@@ -76,6 +77,7 @@ const createLogger = (level: LogLevel): (...args: unknown[]) => void => {
     // In production, send errors to Sentry and suppress console logs
     if (level === "error") {
       return (...args: unknown[]) => {
+        emitStructured(level, args);
         const primary = resolvePrimaryError(args);
         if (isExpectedClientError(primary)) {
           return;
@@ -88,16 +90,16 @@ const createLogger = (level: LogLevel): (...args: unknown[]) => void => {
           args[1] instanceof Error &&
           typeof args[0] === "string"
         ) {
-          captureException(args[1], { label: args[0] });
+          captureException(sanitizedError(args[1]), { label: redactText(args[0]) });
           return;
         }
         const error = extractError(args);
         if (error) {
           // Send to Sentry if configured
           if (args.length > 1 && typeof args[1] === "object") {
-            captureException(error, args[1] as Record<string, unknown>);
+            captureException(sanitizedError(error), redactLogValue(args[1]) as Record<string, unknown>);
           } else {
-            captureException(error);
+            captureException(sanitizedError(error));
           }
         } else if (args.length > 0) {
           // Try to send as message if not an error
@@ -106,31 +108,38 @@ const createLogger = (level: LogLevel): (...args: unknown[]) => void => {
             args.length > 1 && typeof args[1] === "object"
               ? (args[1] as Record<string, unknown>)
               : undefined;
-          captureMessage(message, "error", context);
+          captureMessage(redactText(message), "error", redactLogValue(context) as Record<string, unknown> | undefined);
         }
       };
     }
     if (level === "warn") {
       return (...args: unknown[]) => {
+        emitStructured(level, args);
         if (args.length > 0) {
           const message = String(args[0]);
           const context =
             args.length > 1 && typeof args[1] === "object"
               ? (args[1] as Record<string, unknown>)
               : undefined;
-          captureMessage(message, "warning", context);
+          captureMessage(redactText(message), "warning", redactLogValue(context) as Record<string, unknown> | undefined);
         }
       };
     }
-    // No-op for other levels in production
-    return () => {};
+    return (...args: unknown[]) => { if (level !== 'debug') emitStructured(level, args); };
   }
 
   // Development mode: log to console
   return (...args: unknown[]) => {
-    console[level](...args);
+    const sink = globalThis.console;
+    sink[level](...args.map(value => redactLogValue(value)));
   };
 };
+
+function emitStructured(level: LogLevel, args: unknown[]) {
+  // Aliased sink intentionally survives removeConsole in the production compiler.
+  const sink = globalThis.console;
+  sink[level](JSON.stringify({ timestamp: new Date().toISOString(), level, event: args.map(value => redactLogValue(value)) }));
+}
 
 /**
  * Logger instance

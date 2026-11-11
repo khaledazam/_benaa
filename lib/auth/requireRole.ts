@@ -9,6 +9,8 @@ export interface AuthenticatedSession {
   name: string;
   role: string;
   normalizedRole: string;
+  permissions?: string[];
+  permissionsRestricted?: boolean | null;
 }
 
 /**
@@ -29,7 +31,7 @@ export async function requireAuth(
   const role = rawSession.role || "user";
   const normalizedRole = normalizeRole(role);
 
-  if (requiredPermission && !hasPermission(role, requiredPermission)) {
+  if (requiredPermission && !hasPermission(rawSession, requiredPermission)) {
     return NextResponse.json(
       { error: "Forbidden: insufficient permissions for this operation" },
       { status: 403, headers: corsHeaders }
@@ -42,6 +44,8 @@ export async function requireAuth(
     name: rawSession.name,
     role,
     normalizedRole,
+    permissions: rawSession.permissions,
+    permissionsRestricted: rawSession.permissionsRestricted,
   };
 
   return { session };
@@ -84,6 +88,8 @@ export async function requireRole(
     name: rawSession.name,
     role: userRole,
     normalizedRole: normalizedUserRole,
+    permissions: rawSession.permissions,
+    permissionsRestricted: rawSession.permissionsRestricted,
   };
 
   return { session };

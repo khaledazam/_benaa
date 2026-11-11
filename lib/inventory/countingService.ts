@@ -1,5 +1,8 @@
+import { authorizeInventoryPosting } from "./postingAuthorization";
+import { inventoryTransaction } from "./transaction";
+import { stockUnits, STOCK_SCALE, addStock } from "./quantity";
 import { prisma } from "@/prisma/client";
-import { roundQty, createAdjustment, postAdjustment } from "@/lib/inventory/adjustmentService";
+import { roundQty, createAdjustment, postAdjustmentInTx } from "@/lib/inventory/adjustmentService";
 import { CreateCountInput, RecordCountItemsInput } from "@/lib/validations/count-validations";
 
 export async function generateCountNumber(): Promise<string> {
@@ -117,7 +120,7 @@ export async function startInventoryCount(countId: string, userId: string) {
         binId: count.scopeId,
         locationPath: bin.locationPath || bin.code,
         unitId: sla.unitId || sla.product.unitId || null,
-        systemQuantity: roundQty(sla.quantity),
+        systemQuantity: stockUnits(sla.quantity) / STOCK_SCALE,
       });
     }
   } else if (count.scopeType === "PRODUCT" && count.scopeId) {
@@ -138,7 +141,7 @@ export async function startInventoryCount(countId: string, userId: string) {
           binId: sla.binId,
           locationPath: sla.bin?.locationPath || sla.bin?.code || null,
           unitId: product.unitId || null,
-          systemQuantity: roundQty(sla.quantity),
+          systemQuantity: stockUnits(sla.quantity) / STOCK_SCALE,
         });
       }
     } else {
@@ -152,7 +155,7 @@ export async function startInventoryCount(countId: string, userId: string) {
         binId: null,
         locationPath: "Unassigned",
         unitId: product.unitId || null,
-        systemQuantity: roundQty(sa?.quantity ?? 0),
+        systemQuantity: stockUnits(sa?.quantity ?? 0) / STOCK_SCALE,
       });
     }
   } else {
@@ -179,7 +182,7 @@ export async function startInventoryCount(countId: string, userId: string) {
           binId: sla.binId,
           locationPath: sla.bin?.locationPath || sla.bin?.code || null,
           unitId: sla.unitId || sla.product.unitId || null,
-          systemQuantity: roundQty(sla.quantity),
+          systemQuantity: stockUnits(sla.quantity) / STOCK_SCALE,
         });
       }
     }
@@ -232,9 +235,9 @@ export async function recordCountItems(countId: string, input: RecordCountItemsI
     );
 
     if (targetItem) {
-      const sysQty = roundQty(targetItem.systemQuantity);
-      const cntQty = roundQty(itemRecord.countedQuantity);
-      const varQty = roundQty(cntQty - sysQty);
+      const sysQty = stockUnits(targetItem.systemQuantity) / STOCK_SCALE;
+      const cntQty = stockUnits(itemRecord.countedQuantity) / STOCK_SCALE;
+      const varQty = addStock(cntQty, -sysQty);
       let varPct = 0;
       if (sysQty > 0) {
         varPct = roundQty((varQty / sysQty) * 100);
@@ -345,20 +348,31 @@ export async function approveInventoryCount(countId: string, userId: string) {
 }
 
 export async function postInventoryCount(countId: string, userId: string) {
-  const count = await prisma.inventoryCount.findUnique({
+  return inventoryTransaction(prisma, async (tx: any) => {
+  const count = await tx.inventoryCount.findUnique({
     where: { id: countId },
     include: { items: true },
   });
   if (!count) throw new Error("Inventory count not found");
-  if (count.status === "POSTED" || count.status === "CLOSED") {
-    throw new Error(`Inventory count '${count.countNumber}' is already in '${count.status}' status.`);
-  }
+  await authorizeInventoryPosting(tx, userId, count.warehouseId, "INVENTORY_COUNT_POST", !["POSTED", "CLOSED"].includes(count.status));
+  if (count.status === "POSTED" || count.status === "CLOSED") return count;
   if (count.status !== "APPROVED") {
     throw new Error(`Cannot post inventory count in '${count.status}' status. Must be APPROVED.`);
   }
 
-  const varianceItems = count.items.filter((i) => i.varianceQuantity !== null && i.varianceQuantity !== 0);
+  const varianceItems = count.items.filter((i: any) => i.varianceQuantity !== null && i.varianceQuantity !== 0);
 
+  // Fence the count document before any stock, generated document or ledger write.
+  await tx.inventoryCount.update({ where: { id: countId, status: "APPROVED" }, data: { updatedAt: new Date() } });
+  for (const productId of [...new Set<string>(count.items.map((item: any) => item.productId))].sort()) {
+    await tx.product.update({ where: { id: productId }, data: { updatedAt: new Date() } });
+  }
+  for (const item of count.items) {
+    const allocation = item.binId
+      ? await tx.stockLocationAllocation.findUnique({ where: { productId_binId: { productId: item.productId, binId: item.binId } } })
+      : await tx.stockAllocation.findUnique({ where: { productId_warehouseId: { productId: item.productId, warehouseId: count.warehouseId } } });
+    if (stockUnits(allocation?.quantity || 0) !== stockUnits(item.systemQuantity)) throw new Error("Stock changed since counting; recount before posting");
+  }
   let adjustmentId: string | null = null;
   if (varianceItems.length > 0) {
     const adjInput = {
@@ -366,7 +380,7 @@ export async function postInventoryCount(countId: string, userId: string) {
       reason: `Cycle Count Adjustment for ${count.countNumber}`,
       adjustmentType: "CORRECTION" as const,
       notes: `Generated from Inventory Count ${count.countNumber}`,
-      items: varianceItems.map((item) => ({
+      items: varianceItems.map((item: any) => ({
         productId: item.productId,
         binId: item.binId,
         unitId: item.unitId,
@@ -379,12 +393,16 @@ export async function postInventoryCount(countId: string, userId: string) {
       })),
     };
 
-    const draftAdj = await createAdjustment(adjInput, userId);
-    const postedAdj = await postAdjustment(draftAdj.id, userId);
+    const draftAdj = await createAdjustment(adjInput, userId, tx);
+    // Inherit approval from the already-approved physical count.
+    await tx.stockAdjustment.update({ where: { id: draftAdj.id, status: "DRAFT" }, data: {
+      status: "APPROVED", approvedBy: count.approvedBy, approvedAt: count.approvedAt,
+    } });
+    const postedAdj = await postAdjustmentInTx(tx, draftAdj.id, userId);
     adjustmentId = postedAdj?.id || draftAdj.id;
   }
 
-  const updated = await prisma.inventoryCount.update({
+  const updated = await tx.inventoryCount.update({
     where: { id: countId },
     data: {
       status: "POSTED",
@@ -395,7 +413,7 @@ export async function postInventoryCount(countId: string, userId: string) {
     include: { warehouse: true, items: { include: { product: true, bin: true } } },
   });
 
-  await prisma.auditLog.create({
+  await tx.auditLog.create({
     data: {
       userId,
       action: "inventory_count_posted",
@@ -406,6 +424,7 @@ export async function postInventoryCount(countId: string, userId: string) {
   });
 
   return updated;
+  });
 }
 
 export async function closeInventoryCount(countId: string, userId: string) {

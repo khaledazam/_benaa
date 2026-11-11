@@ -1,4 +1,6 @@
 import { prisma } from "@/prisma/client";
+import { getStockAvailabilityInTx } from "./availability";
+import { addStock } from "./quantity";
 
 export type ReconciliationHealthStatus = "HEALTHY" | "WARNING" | "CRITICAL";
 
@@ -41,10 +43,10 @@ export interface ReconciliationOptions {
 }
 
 /**
- * Utility helper to round numbers safely to 2 decimals
+ * Reports preserve the inventory engine's six-decimal base-stock precision.
  */
 function roundQty(val: number): number {
-  return Math.round((val + Number.EPSILON) * 100) / 100;
+  return Math.round(val * 1_000_000) / 1_000_000;
 }
 
 /**
@@ -53,16 +55,16 @@ function roundQty(val: number): number {
  * - TRANSFER_OUT - SALE - SUPPLIER_RETURN - ADJUSTMENT_OUT - DAMAGE - LOSS
  */
 export function calculateLedgerStockBalance(movements: any[]): number {
-  const incomingTypes = ["OPENING_BALANCE", "PURCHASE", "TRANSFER_IN", "CUSTOMER_RETURN", "ADJUSTMENT_IN"];
-  const outgoingTypes = ["TRANSFER_OUT", "SALE", "SUPPLIER_RETURN", "ADJUSTMENT_OUT", "DAMAGE", "LOSS"];
+  const incomingTypes = ["OPENING_BALANCE", "PURCHASE", "TRANSFER_IN", "CUSTOMER_RETURN", "ADJUSTMENT_IN", "PROJECT_RETURN"];
+  const outgoingTypes = ["TRANSFER_OUT", "SALE", "SUPPLIER_RETURN", "ADJUSTMENT_OUT", "DAMAGE", "LOSS", "PROJECT_ISSUE"];
   let total = 0;
 
   for (const m of movements) {
-    const qty = Number(m.quantityInBaseUnit || m.quantity || 0);
+    const qty = Number(m.quantityInBaseUnit ?? m.quantity ?? 0);
     if (incomingTypes.includes(m.movementType)) {
-      total += qty;
+      total = addStock(total, qty);
     } else if (outgoingTypes.includes(m.movementType)) {
-      total -= qty;
+      total = addStock(total, -qty);
     }
     // RELOCATION intra-warehouse movement has net 0 delta on overall warehouse stock
   }
@@ -146,15 +148,12 @@ export async function reconcileProductWarehouse(productId: string, warehouseId: 
   const unassignedStock = roundQty(Math.max(0, physicalStock - binStock));
 
   // Invariant C: Active reserved stock calculation
-  let reservedStock = 0;
-  for (const res of reservations) {
-    for (const item of res.items) {
-      reservedStock += Number(item.remainingQuantity || 0);
-    }
-  }
-  reservedStock = roundQty(reservedStock);
+  const authoritative = await getStockAvailabilityInTx(prisma, productId, warehouseId);
+  const reservedStock = authoritative.reservedStock;
 
   // Invariant B: Available Stock formula
+  // Keep negative values visible to the integrity checks below. Availability
+  // used to authorize mutations is independently clamped by the shared engine.
   const availableStock = roundQty(physicalStock - reservedStock);
 
   // Movement Ledger Balance
@@ -166,7 +165,7 @@ export async function reconcileProductWarehouse(productId: string, warehouseId: 
   const discrepancies: StockDiscrepancy[] = [];
 
   // BATCH STOCK CHECK: Batch Stock vs Physical Stock for Tracked Products
-  if (product?.trackingMode && product.trackingMode !== "NONE" && Math.abs(batchStock - physicalStock) > 0.001) {
+  if (product?.trackingMode && product.trackingMode !== "NONE" && Math.abs(batchStock - physicalStock) > 0.0000005) {
     discrepancies.push({
       category: "BIN_ALLOCATION",
       severity: "WARNING",
@@ -268,7 +267,7 @@ export async function reconcileProductWarehouse(productId: string, warehouseId: 
   }
 
   // INVARIANT F CHECK: Movement Ledger Balance vs Physical Stock
-  if (Math.abs(ledgerStock - physicalStock) > 0.001) {
+  if (Math.abs(ledgerStock - physicalStock) > 0.0000005) {
     discrepancies.push({
       category: "LEDGER_BALANCE",
       severity: "CRITICAL",
@@ -358,7 +357,7 @@ export async function reconcileProductWarehouse(productId: string, warehouseId: 
       }
 
       const expectedRem = roundQty(Math.max(0, resv - rel));
-      if (Math.abs(rem - expectedRem) > 0.001) {
+      if (Math.abs(rem - expectedRem) > 0.0000005) {
         discrepancies.push({
           category: "RESERVATION",
           severity: "WARNING",
@@ -380,7 +379,7 @@ export async function reconcileProductWarehouse(productId: string, warehouseId: 
   for (const pl of pickLists) {
     for (const pli of pl.items) {
       const pickedSum = roundQty((pli.allocations || []).reduce((sum, a) => sum + Number(a.pickedQuantity || 0), 0));
-      if (Math.abs(pickedSum - Number(pli.pickedQuantity || 0)) > 0.001) {
+      if (Math.abs(pickedSum - Number(pli.pickedQuantity || 0)) > 0.0000005) {
         discrepancies.push({
           category: "PICKING",
           severity: "WARNING",

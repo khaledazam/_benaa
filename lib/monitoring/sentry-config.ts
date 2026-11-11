@@ -4,6 +4,7 @@
  */
 
 import type { ErrorEvent, EventHint } from "@sentry/nextjs";
+import { redactLogValue, redactText } from '../log-redaction';
 
 /** First-party tunnel; browser sends events here instead of ingest.de.sentry.io */
 export const SENTRY_TUNNEL_PATH = "/api/monitoring" as const;
@@ -150,15 +151,23 @@ export function scrubSentryEvent(
   }
 
   if (event.request) {
-    delete event.request.headers?.authorization;
-    delete event.request.headers?.cookie;
+    const id = Object.entries(event.request.headers || {}).find(([key]) => key.toLowerCase() === 'x-benaa-request-id')?.[1];
+    event.request.headers = typeof id === 'string' && /^[a-f0-9-]{36}$/i.test(id) ? { 'x-benaa-request-id': id } : {};
     delete event.request.cookies;
+    delete event.request.data;
+    delete event.request.query_string;
+    if (event.request.url) { try { const url = new URL(event.request.url); url.search = ''; url.hash = ''; url.username = ''; url.password = ''; event.request.url = url.toString(); } catch { delete event.request.url; } }
   }
   if (event.contexts?.request?.headers) {
     const headers = event.contexts.request.headers as Record<string, unknown>;
-    delete headers.authorization;
-    delete headers.cookie;
+    for (const key of Object.keys(headers)) if (key.toLowerCase() !== 'x-benaa-request-id') delete headers[key];
   }
+  if (event.user) event.user = event.user.id ? { id: event.user.id } : {};
+  if (event.message) event.message = redactText(event.message);
+  if (event.extra) event.extra = redactLogValue(event.extra) as ErrorEvent['extra'];
+  if (event.contexts) event.contexts = redactLogValue(event.contexts) as ErrorEvent['contexts'];
+  if (event.breadcrumbs) event.breadcrumbs = redactLogValue(event.breadcrumbs) as ErrorEvent['breadcrumbs'];
+  for (const value of event.exception?.values || []) if (value.value) value.value = redactText(value.value);
   return event;
 }
 

@@ -1,3 +1,4 @@
+import { withWarehouseScope } from "@/lib/auth/warehouse-route-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/requireRole";
 import { executeStockRelocation } from "@/lib/inventory/stockService";
@@ -14,7 +15,7 @@ const relocateSchema = z.object({
   reason: z.string().optional().or(z.null()),
 });
 
-export async function POST(request: NextRequest) {
+async function scopedPOST(request: NextRequest) {
   const auth = await requireAuth(request, BuildStockPermissions.STOCK_RELOCATE);
   if (auth instanceof NextResponse) return auth;
 
@@ -32,3 +33,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
 }
+
+export const POST = withWarehouseScope(scopedPOST);

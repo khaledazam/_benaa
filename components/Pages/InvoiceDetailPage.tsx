@@ -126,7 +126,7 @@ export default function InvoiceDetailPage({
   const isClientRole = user?.role === "client";
   const isSupplierRole = user?.role === "supplier";
   const isAdminRole = user?.role === "admin" || Boolean(embedInAdmin);
-  const disableInvoiceMutations = isClientRole || isSupplierRole;
+  const disableInvoiceMutations = isClientRole || isSupplierRole || Boolean(invoice?.erpSalesOrderId);
   // REQ-0214 — catalog-history clients may view others' INV; Pay only for assigned buyer
   const isInvoiceBuyer =
     Boolean(user?.id) &&
@@ -134,7 +134,7 @@ export default function InvoiceDetailPage({
       invoice?.orderedBy?.userId === user?.id);
   const canShowPayInvoice =
     !isSupplierRole &&
-    (isAdminRole || user?.role === "user" || isInvoiceBuyer);
+    (Boolean(invoice?.erpSalesOrderId) || isAdminRole || user?.role === "user" || isInvoiceBuyer);
 
   // Edit Invoice: open InvoiceDialog in edit mode (same as InvoiceList/InvoiceActions)
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -628,7 +628,7 @@ export default function InvoiceDetailPage({
                     {invoice.linkedOrderNumber ? (
                       <CopyableText value={invoice.linkedOrderNumber}>
                         <Link
-                          href={`${linkedOrderHrefBase}/${invoice.orderId}`}
+                          href={invoice.erpSalesOrderId ? `/sales/${invoice.erpSalesOrderId}` : `${linkedOrderHrefBase}/${invoice.orderId}`}
                           className="text-sky-600 dark:text-sky-400 hover:text-sky-500 dark:hover:text-sky-300 font-normal"
                         >
                           {invoice.linkedOrderNumber}

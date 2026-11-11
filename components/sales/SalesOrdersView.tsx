@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Receipt, Plus, Search, Filter, Warehouse, Clock, CheckCircle2, AlertTriangle, XCircle, ArrowRight } from "lucide-react";
 import Link from "next/link";
@@ -23,6 +23,8 @@ const STATUS_TABS = [
 ];
 
 export default function SalesOrdersView() {
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => { setHydrated(true); }, []);
   const { user } = useAuth();
   const userRole = user?.role || "VIEWER";
 
@@ -31,7 +33,7 @@ export default function SalesOrdersView() {
   const [warehouseId, setWarehouseId] = useState("");
   const [page, setPage] = useState(1);
 
-  const canCreate = hasPermission(userRole, BuildStockPermissions.SALES_ORDER_CREATE);
+  const canCreate = hasPermission(user, BuildStockPermissions.SALES_ORDER_CREATE);
 
   // Fetch Warehouses for Filter
   const { data: warehouses } = useQuery({
@@ -80,6 +82,9 @@ export default function SalesOrdersView() {
         return <Badge variant="outline" className="text-[10px]">{status}</Badge>;
     }
   };
+
+  // Persisted queries may already be populated on the first browser render.
+  if (!hydrated) return <div className="space-y-6 p-6" aria-busy="true">Loading sales orders...</div>;
 
   return (
     <div className="space-y-6 p-6">

@@ -1,7 +1,10 @@
 import { prisma } from "@/prisma/client";
+import { inventoryTransaction } from "@/lib/inventory/transaction";
+import { getStockAvailabilityInTx } from "@/lib/inventory/availability";
+import { stockUnits } from "@/lib/inventory/quantity";
+import { authorizeInventoryPosting } from '@/lib/inventory/postingAuthorization';
+import { convertUnitQuantity } from "@/lib/units/unitService";
 import {
-  validateProductTrackingModeInTx,
-  reserveBatchQuantityInTx,
   releaseBatchReservationInTx,
 } from "@/lib/inventory/batchService";
 
@@ -57,47 +60,11 @@ export async function generateReservationNumber(): Promise<string> {
 }
 
 /**
- * Helper to safely round values to 2 decimals
- */
-function roundQty(val: number): number {
-  return Math.round((val + Number.EPSILON) * 100) / 100;
-}
-
-/**
  * Computes available stock for a product in a warehouse
  * availableStock = physicalStock - activeReservedStock
  */
 export async function getAvailableStock(productId: string, warehouseId: string): Promise<StockAvailabilityResult> {
-  // 1. Physical Stock sum
-  const allocations = await prisma.stockAllocation.findMany({
-    where: { productId, warehouseId },
-    select: { quantity: true },
-  });
-
-  const physicalStock = roundQty(allocations.reduce((sum, a) => sum + a.quantity, 0));
-
-  // 2. Active Reserved Stock sum
-  const activeItems = await prisma.stockReservationItem.findMany({
-    where: {
-      productId,
-      warehouseId,
-      reservation: {
-        status: { in: ["ACTIVE", "PARTIALLY_FULFILLED"] },
-      },
-    },
-    select: { remainingQuantity: true },
-  });
-
-  const reservedStock = roundQty(activeItems.reduce((sum, i) => sum + i.remainingQuantity, 0));
-  const availableStock = roundQty(Math.max(0, physicalStock - reservedStock));
-
-  return {
-    productId,
-    warehouseId,
-    physicalStock,
-    reservedStock,
-    availableStock,
-  };
+  return { productId, warehouseId, ...await getStockAvailabilityInTx(prisma, productId, warehouseId) };
 }
 
 /**
@@ -106,88 +73,39 @@ export async function getAvailableStock(productId: string, warehouseId: string):
 export async function createStockReservation(salesOrderId: string, userId: string) {
   if (!salesOrderId) throw new Error("Sales Order ID is required");
 
-  // 1. Fetch Sales Order
-  const salesOrder = await prisma.salesOrder.findUnique({
-    where: { id: salesOrderId },
-    include: {
-      customer: true,
-      warehouse: true,
-      items: true,
-    },
-  });
-
-  if (!salesOrder) throw new Error("Sales Order not found");
-  if (salesOrder.status !== "APPROVED") {
-    throw new Error(`Cannot reserve stock for Sales Order in '${salesOrder.status}' status. Only APPROVED orders can be reserved.`);
-  }
-
-  // 2. Check Idempotency (no active reservation for same Sales Order)
-  const existingActive = await prisma.stockReservation.findFirst({
-    where: {
-      salesOrderId,
-      status: { in: ["ACTIVE", "PARTIALLY_FULFILLED"] },
-    },
-  });
-
-  if (existingActive) {
-    throw new Error(
-      `Sales Order '${salesOrder.salesOrderNumber}' already has an active reservation (${existingActive.reservationNumber}).`
-    );
-  }
-
-  if (!salesOrder.items || salesOrder.items.length === 0) {
-    throw new Error("Sales Order has no line items to reserve");
-  }
-
-  // 3. Atomic Reservation Transaction
-  const reservationNumber = await generateReservationNumber();
-
-  return await prisma.$transaction(async (tx) => {
-    // Validate availability for each line item
-    const reservationItemsData = [];
-
+  return inventoryTransaction(prisma, async (tx: any) => {
+    const salesOrder = await tx.salesOrder.findUnique({ where: { id: salesOrderId }, include: { items: true } });
+    if (!salesOrder) throw new Error("Sales Order not found");
+    await authorizeInventoryPosting(tx, userId, salesOrder.warehouseId, 'RESERVATION_CREATE');
+    await tx.salesOrder.update({ where: { id: salesOrderId }, data: { updatedAt: new Date() } });
+    const existing = await tx.stockReservation.findFirst({ where: { salesOrderId, status: { in: ["ACTIVE", "PARTIALLY_FULFILLED"] } }, include: { items: true } });
+    if (existing) return existing;
+    if (salesOrder.status !== "APPROVED") throw new Error("Only APPROVED sales orders can be reserved");
+    if (!salesOrder.items.length) throw new Error("Sales Order has no line items to reserve");
+    const demand = new Map<string, number>();
+    const reservationItemsData: any[] = [];
     for (const item of salesOrder.items) {
-      await validateProductTrackingModeInTx(tx, item.productId);
-
-      // Calculate physical stock in warehouse
-      const allocs = await tx.stockAllocation.findMany({
-        where: { productId: item.productId, warehouseId: salesOrder.warehouseId },
-        select: { quantity: true },
-      });
-      const physicalStock = roundQty(allocs.reduce((sum, a) => sum + a.quantity, 0));
-
-      // Calculate existing active reservations
-      const reservedItems = await tx.stockReservationItem.findMany({
-        where: {
-          productId: item.productId,
-          warehouseId: salesOrder.warehouseId,
-          reservation: {
-            status: { in: ["ACTIVE", "PARTIALLY_FULFILLED"] },
-          },
-        },
-        select: { remainingQuantity: true },
-      });
-      const existingReserved = roundQty(reservedItems.reduce((sum, i) => sum + i.remainingQuantity, 0));
-      const availableStock = roundQty(Math.max(0, physicalStock - existingReserved));
-
-      if (item.orderedQuantity > availableStock) {
-        throw new Error(
-          `Insufficient available stock for product '${item.productName}'. Requested: ${item.orderedQuantity} ${item.unitSymbol || ""}, Available: ${availableStock} ${item.unitSymbol || ""}`
-        );
-      }
-
-      reservationItemsData.push({
-        salesOrderItemId: item.id,
-        productId: item.productId,
-        warehouseId: salesOrder.warehouseId,
-        unitId: item.unitId,
-        unitSymbol: item.unitSymbol,
-        requestedQuantity: item.orderedQuantity,
-        reservedQuantity: item.orderedQuantity,
-        releasedQuantity: 0,
-        remainingQuantity: item.orderedQuantity,
-      });
+      if (!Number.isFinite(item.orderedQuantity) || item.orderedQuantity <= 0) throw new Error("Reservation quantities must be finite and positive");
+      const product = await tx.product.findUnique({ where: { id: item.productId } });
+      if (!product) throw new Error("Product not found");
+      const base = await convertUnitQuantity({ quantity: item.orderedQuantity, fromUnitId: item.unitId || product.unitId, toUnitId: product.unitId, productId: item.productId }, tx);
+      stockUnits(base);
+      demand.set(item.productId, (demand.get(item.productId) || 0) + base);
+      reservationItemsData.push({ salesOrderItemId: item.id, productId: item.productId, warehouseId: salesOrder.warehouseId, unitId: item.unitId, unitSymbol: item.unitSymbol,
+        requestedQuantity: item.orderedQuantity, reservedQuantity: item.orderedQuantity, releasedQuantity: 0, remainingQuantity: item.orderedQuantity });
     }
+    for (const [productId, quantity] of [...demand].sort(([a], [b]) => a.localeCompare(b))) {
+      await tx.product.update({ where: { id: productId }, data: { updatedAt: new Date() } });
+      await tx.stockAllocation.update({ where: { productId_warehouseId: { productId, warehouseId: salesOrder.warehouseId } }, data: { reservedQuantity: { increment: 0 }, updatedAt: new Date() } });
+      const availability = await getStockAvailabilityInTx(tx, productId, salesOrder.warehouseId);
+      if (!availability.consistent || quantity > availability.availableStock + 1e-8) {
+        const product = await tx.product.findUnique({ where: { id: productId } });
+        throw new Error(`Insufficient available stock for product '${product?.name || productId}'`);
+      }
+    }
+    const prefix = `RES-${new Date().getFullYear()}-`;
+    const last = await tx.stockReservation.findFirst({ where: { reservationNumber: { startsWith: prefix } }, orderBy: { reservationNumber: "desc" } });
+    const reservationNumber = `${prefix}${String(Number(last?.reservationNumber.split("-").pop() || 0) + 1).padStart(6, "0")}`;
 
     // Create Reservation Header & Items
     const reservation = await tx.stockReservation.create({
@@ -239,28 +157,35 @@ export async function releaseReservation(
   options: ReleaseReservationOptions = {},
   userId: string
 ) {
-  const existing = await prisma.stockReservation.findUnique({
+  return inventoryTransaction(prisma, async (tx: any) => {
+  const existing = await tx.stockReservation.findUnique({
     where: { id: reservationId },
     include: { items: true },
   });
 
   if (!existing) throw new Error("Stock Reservation not found");
+  await authorizeInventoryPosting(tx, userId, existing.warehouseId, 'RESERVATION_RELEASE');
   if (!["ACTIVE", "PARTIALLY_FULFILLED"].includes(existing.status)) {
     throw new Error(`Cannot release reservation in '${existing.status}' status. Only ACTIVE or PARTIALLY_FULFILLED reservations can be released.`);
   }
 
-  return await prisma.$transaction(async (tx) => {
+    for (const productId of [...new Set<string>(existing.items.map((item: any) => item.productId))].sort()) {
+      await tx.product.update({ where: { id: productId }, data: { updatedAt: new Date() } });
+      await tx.stockAllocation.update({ where: { productId_warehouseId: { productId, warehouseId: existing.warehouseId } }, data: { reservedQuantity: { increment: 0 }, updatedAt: new Date() } });
+    }
+
     let allFulfilled = true;
     let anyReleased = false;
 
     if (options.releasedQuantities && Object.keys(options.releasedQuantities).length > 0) {
       // Partial / specific item release
       for (const item of existing.items) {
-        const releaseAmt = options.releasedQuantities[item.id] || 0;
+        const releaseAmt = options.releasedQuantities[item.id] ?? 0;
+        if (!Number.isFinite(releaseAmt) || releaseAmt < 0 || releaseAmt > item.remainingQuantity) throw new Error("Release quantity must be finite and within remaining reservation");
         if (releaseAmt > 0) {
           anyReleased = true;
-          const newReleased = roundQty(item.releasedQuantity + releaseAmt);
-          const newRemaining = roundQty(Math.max(0, item.reservedQuantity - newReleased));
+          const newReleased = item.releasedQuantity + releaseAmt;
+          const newRemaining = Math.max(0, item.remainingQuantity - releaseAmt);
 
           await tx.stockReservationItem.update({
             where: { id: item.id },
@@ -271,7 +196,7 @@ export async function releaseReservation(
           });
 
           if (item.batchId) {
-            await releaseBatchReservationInTx(tx, item.batchId, releaseAmt);
+            await releaseBatchInBase(tx, item, releaseAmt);
           }
 
           if (newRemaining > 0) allFulfilled = false;
@@ -291,7 +216,7 @@ export async function releaseReservation(
           },
         });
         if (item.batchId && item.remainingQuantity > 0) {
-          await releaseBatchReservationInTx(tx, item.batchId, item.remainingQuantity);
+          await releaseBatchInBase(tx, item, item.remainingQuantity);
         }
       }
       allFulfilled = true;
@@ -336,7 +261,8 @@ export async function releaseReservation(
  * Physical stock remains 100% UNCHANGED.
  */
 export async function cancelReservation(reservationId: string, reason: string | undefined, userId: string) {
-  const existing = await prisma.stockReservation.findUnique({
+  return inventoryTransaction(prisma, async (tx: any) => {
+  const existing = await tx.stockReservation.findUnique({
     where: { id: reservationId },
     include: { items: true },
   });
@@ -346,7 +272,11 @@ export async function cancelReservation(reservationId: string, reason: string | 
     throw new Error(`Reservation is already in terminal status '${existing.status}'.`);
   }
 
-  return await prisma.$transaction(async (tx) => {
+    for (const productId of [...new Set<string>(existing.items.map((item: any) => item.productId))].sort()) {
+      await tx.product.update({ where: { id: productId }, data: { updatedAt: new Date() } });
+      await tx.stockAllocation.update({ where: { productId_warehouseId: { productId, warehouseId: existing.warehouseId } }, data: { reservedQuantity: { increment: 0 }, updatedAt: new Date() } });
+    }
+
     for (const item of existing.items) {
       await tx.stockReservationItem.update({
         where: { id: item.id },
@@ -357,6 +287,7 @@ export async function cancelReservation(reservationId: string, reason: string | 
       });
     }
 
+    for (const item of existing.items) if (item.batchId && item.remainingQuantity > 0) await releaseBatchInBase(tx, item, item.remainingQuantity);
     const cancelled = await tx.stockReservation.update({
       where: { id: reservationId },
       data: {
@@ -478,4 +409,10 @@ export async function getReservations(query: GetReservationsQuery = {}) {
       totalPages,
     },
   };
+}
+
+async function releaseBatchInBase(tx: any, item: any, quantity: number) {
+  const product = await tx.product.findUnique({ where: { id: item.productId } });
+  const base = await convertUnitQuantity({ quantity, fromUnitId: item.unitId || product.unitId, toUnitId: product.unitId, productId: item.productId }, tx);
+  await releaseBatchReservationInTx(tx, item.batchId, base);
 }

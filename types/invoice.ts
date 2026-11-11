@@ -18,6 +18,8 @@ export type InvoiceStatus =
  * Invoice interface matching Prisma schema
  */
 export interface Invoice {
+  erpSalesOrderId?: string | null;
+  customerId?: string | null;
   id: string;
   invoiceNumber: string;
   orderId: string;

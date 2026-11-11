@@ -6,6 +6,8 @@ const mockProduct = {
   sku: "TILE-PORC-100",
   barcode: "6291100123456",
   deletedAt: null,
+  quantity: 500,
+  reservedQuantity: 0,
 };
 
 const mockWarehouse = { id: "wh-1", name: "Main Warehouse" };
@@ -14,6 +16,8 @@ const mockAllocations = [{ id: "sa-1", productId: "prod-tile-100", warehouseId: 
 vi.mock("@/prisma/client", () => {
   return {
     prisma: {
+      stockReservationItem: { findMany: vi.fn(async () => []) },
+      projectMaterialIssueItem: { findMany: vi.fn(async () => []) },
       product: {
         findFirst: vi.fn(async ({ where }: any) => {
           const barcodeCond = where.OR?.find((c: any) => c.barcode === mockProduct.barcode);

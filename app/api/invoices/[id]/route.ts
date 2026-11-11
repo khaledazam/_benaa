@@ -1,3 +1,4 @@
+import { erpFinancialAccess } from "@/lib/sales/financialAccess";
 /**
  * Individual Invoice API Route Handler
  * Handles operations on individual invoices (GET, PUT, DELETE)
@@ -93,18 +94,23 @@ export async function PUT(
     }
 
     const userId = session.id;
+    const candidate = await prisma.invoice.findUnique({ where: { id } });
+    if (candidate) {
+      const erpAccess = await erpFinancialAccess(prisma, userId, candidate.orderId);
+      if (erpAccess !== null) return NextResponse.json({ error: erpAccess ? "ERP invoice totals are immutable; use verified payment events" : "Forbidden ERP invoice" }, { status: erpAccess ? 409 : 403 });
+    }
     const body = await request.json();
 
     // Validate request body
     const validationResult = updateInvoiceSchema.safeParse(body);
     if (!validationResult.success) {
       logger.warn("Invalid invoice update data", {
-        errors: validationResult.error.errors,
+        errors: validationResult.error.issues,
       });
       return NextResponse.json(
         {
           error: "Invalid request body",
-          details: validationResult.error.errors,
+          details: validationResult.error.issues,
         },
         { status: 400 },
       );
@@ -230,6 +236,8 @@ export async function DELETE(
     }
 
     const userId = session.id;
+    const candidate = await prisma.invoice.findUnique({ where: { id: invoiceId } });
+    if (candidate && await erpFinancialAccess(prisma, userId, candidate.orderId) !== null) return NextResponse.json({ error: "ERP financial history cannot be deleted" }, { status: 409 });
     const isAdmin = session.role === "admin";
 
     // Admin can delete any invoice; product owners can delete invoices linked to their products.

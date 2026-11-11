@@ -3,6 +3,8 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 vi.mock("@/prisma/client", () => ({
   prisma: {
     stockAllocation: { findMany: vi.fn() },
+    stockReservationItem: { findMany: vi.fn().mockResolvedValue([]) },
+    projectMaterialIssueItem: { findMany: vi.fn().mockResolvedValue([]) },
     product: { findMany: vi.fn() },
     category: { findMany: vi.fn() },
     supplier: { findMany: vi.fn() },

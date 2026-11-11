@@ -34,7 +34,7 @@ export type ChatCompletionFailureKind =
   | "rate_limit"
   | "upstream";
 
-export type LlmProvider = "openrouter" | "groq";
+export type LlmProvider = "openrouter" | "groq" | "nararouter";
 
 export type ChatCompletionResult =
   | { ok: true; data: ChatCompletionResponse; provider: LlmProvider }

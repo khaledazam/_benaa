@@ -1,3 +1,4 @@
+import { withWarehouseScope } from "@/lib/auth/warehouse-route-scope";
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth-server";
 import { mapSessionToAppUser } from "@/lib/auth/map-session-user";
@@ -14,19 +15,20 @@ const deliverySchema = z.object({
   routeNotes: z.string().optional(),
 });
 
-export async function POST(
+async function scopedPOST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getSession();
+    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const user = session ? mapSessionToAppUser(session) : null;
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const role = user.role || "VIEWER";
 
-    if (!hasPermission(role, BuildStockPermissions.DISPATCH_POST)) {
+    if (!hasPermission(user, BuildStockPermissions.DISPATCH_POST)) {
       return NextResponse.json({ error: "Forbidden — DISPATCH_POST permission required" }, { status: 403 });
     }
 
@@ -55,3 +57,5 @@ export async function POST(
     return NextResponse.json({ error: error.message || "Failed to update delivery status" }, { status: 400 });
   }
 }
+
+export const POST = withWarehouseScope(scopedPOST);
