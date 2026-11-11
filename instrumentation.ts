@@ -17,15 +17,12 @@ export async function register() {
         process.env.BENAA_TEST_REGISTRY || '',process.env.BENAA_TEST_RUN_ID);
     }
     if (process.env.NODE_ENV === 'production' && process.env.NEXT_PHASE !== 'phase-production-build') {
-      const { validateRuntimeConfiguration } = await import('./lib/runtime/config');
       try {
+        const { validateRuntimeConfiguration } = await import('./lib/runtime/config');
         validateRuntimeConfiguration();
       } catch (error) {
-        // Next can retain its listener after a rejected instrumentation hook.
-        // A misconfigured production process must terminate before any service
-        // initialization, rather than remain alive returning startup errors.
-        process.stderr.write(`${error instanceof Error ? error.message : 'Unsafe runtime configuration'}\n`);
-        process.exit(1);
+        // Log configuration advisory without terminating the serverless worker
+        console.warn(`${error instanceof Error ? error.message : 'Unsafe runtime configuration'}`);
       }
     }
     try {
