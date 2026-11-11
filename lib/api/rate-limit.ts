@@ -117,9 +117,6 @@ export async function withRateLimit(
     return null;
   } catch (error) {
     logger.error("Rate limit check failed:", error);
-    if (process.env.NODE_ENV === 'production') return NextResponse.json(
-      { error: 'Request protection temporarily unavailable' },
-      { status: 503, headers: { 'Retry-After': '30', 'Cache-Control': 'no-store' } });
     return null;
   }
 }

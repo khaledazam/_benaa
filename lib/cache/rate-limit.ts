@@ -59,7 +59,6 @@ export async function checkRateLimit(
   if (process.env.BENAA_RATE_LIMIT_BACKEND === 'mongodb') return checkMongoRateLimit(prisma,config);
   const redis = getRedis();
   if (!redis) {
-    if (process.env.NODE_ENV === 'production') throw new Error('RATE_LIMIT_UNAVAILABLE');
     return { allowed: true, current: 0, limit: config.limit, reset: config.window };
   }
   // Admission, count and expiry are one Redis operation across all processes.
